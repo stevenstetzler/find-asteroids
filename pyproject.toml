@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=80", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "find-asteroids"
+license = {file = "LICENSE"}
+readme = "README.md"
+authors = [
+    { name = "Steven Stetzler", email = "steven.stetzler@gmail.com" }
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+]
+dynamic = ["version"]
+requires-python = ">=3.9"
+dependencies = [
+    "astropy",
+    "numba",
+    "mcd-regression"
+]
+description = "Find moving objects in detection catalogs."
+
+[project.urls]
+"Source Code" = "https://github.com/stevenstetzler/find_asteroids"
+
+[project.scripts]
+find_asteroids = "find_asteroids.search:main"
+
+[tool.setuptools_scm]
+write_to = "src/find_asteroids/_version.py"
+version_scheme = "guess-next-dev"
+local_scheme = "no-local-version"
+
+[project.optional-dependencies]
+dev = [
+    "matplotlib" # Used for examples
+]
