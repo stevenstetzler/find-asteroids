@@ -1,5 +1,9 @@
 # find_asteroids
 
+
+[![DOI](https://zenodo.org/badge/1058178358.svg)](https://doi.org/10.5281/zenodo.17139782)
+
+
 Find moving objects in detection catalogs.
 
 <img width="960" height="720" alt="image" src="https://github.com/user-attachments/assets/1ce78a36-8a80-4db7-97bc-27c4a7e2d67f"/>
