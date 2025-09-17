@@ -173,29 +173,33 @@ def search(X, directions, dx, reference_time, num_results=10, precompute=False, 
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(prog=__name__)
-    parser.add_argument("--psfs", required=True, type=Path)
-    parser.add_argument("--catalog", required=True, type=Path)
-    parser.add_argument("--dx", required=True, type=float)
-    parser.add_argument("--velocity", required=True, nargs=2, type=float)
-    parser.add_argument("--angle", required=True, nargs=2, type=float)
-    parser.add_argument("--threshold", required=True, type=int)
-    parser.add_argument("--results-dir", type=Path, required=True)
-    parser.add_argument("--precompute", action='store_true')
-    parser.add_argument("--gpu", action='store_true')
-    parser.add_argument("--gpu-kernels", action='store_true')
-    parser.add_argument("--device", type=int, required=False, default=-1)
-    parser.add_argument("--output-format", type=str, default='ecsv')
+    parser = argparse.ArgumentParser(prog="find_asteroids", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument("--catalog", required=True, type=Path, help="The detection catalog to search. An astropy-readable table containing at least 'ra', 'dec', and 'time' columns (with units).")
+    parser.add_argument("--psfs", required=False, default=None, type=Path, help="An astropy-readable table containing a 'psf' column (with units) that specifies the PSF-widths of the images from which the detection catalog is derived. If not provided, a value of 1 arcsec is assumed.")
+    parser.add_argument("--velocity", required=True, nargs=2, type=float, help="The velocity range over which to search, in units of deg/day.")
+    parser.add_argument("--angle", required=True, nargs=2, type=float, help="The on-sky angles over which to search, in units of deg.")
+    parser.add_argument("--dx", required=True, type=float, help="Search bin-width, in units of the PSF-width.")
+    parser.add_argument("--num-results", required=True, type=int, help="Number of results to produce.")
+    parser.add_argument("--results-dir", type=Path, required=True, help="The directory into which to write results.")
+    parser.add_argument("--precompute", action='store_true', help="Precompute projected positions of detections for all trial velocities (uses more memory, but may be faster).")
+    parser.add_argument("--gpu", action='store_true', help="Run the core-search components of the algorithm on GPU.")
+    parser.add_argument("--gpu-kernels", action='store_true', help="Run the entirety of the search algorithm on the GPU.")
+    parser.add_argument("--device", type=int, required=False, default=-1, help="The GPU device number to use.")
+    parser.add_argument("--output-format", type=str, default='ecsv', help="The astropy.table supported format for writing results.")
 
     args = parser.parse_args()
 
     if args.gpu and args.device > -1:
         cuda.select_device(args.device)
     
-    psfs = astropy.table.Table.read(args.psfs)['psf']
-    log.info("seeing [min, median, max]: [%f, %f, %f]", np.min(psfs), np.median(psfs), np.max(psfs))
+    if args.psfs:
+        psfs = astropy.table.Table.read(args.psfs)['psf']
+        log.info("seeing [min, median, max]: [%f, %f, %f]", np.min(psfs), np.median(psfs), np.max(psfs))
+        psf_scaling = np.median(psfs)
+    else:
+        psf_scaling = 1 * u.arcsec
 
-    dx = args.dx * np.median(psfs) * psfs.unit
+    dx = args.dx * psf_scaling * psfs.unit
     log.info(f"using dx = {dx}")
     catalog = astropy.table.Table.read(args.catalog)
 
@@ -210,9 +214,9 @@ def main():
     directions = SearchDirections([vmin, vmax], [phimin, phimax], dx, dt)
     log.info("searching %d directions", len(directions.b))
     if args.gpu_kernels:
-        results, results_points = search_gpu(X, directions, dx, reference_epoch.value, num_results=args.threshold)
+        results, results_points = search_gpu(X, directions, dx, reference_epoch.value, num_results=args.num_results)
     else:
-        results, results_points = search(X, directions, dx, reference_epoch.value, num_results=args.threshold, precompute=args.precompute, gpu=args.gpu)
+        results, results_points = search(X, directions, dx, reference_epoch.value, num_results=args.num_results, precompute=args.precompute, gpu=args.gpu)
 
     args.results_dir.mkdir(parents=True, exist_ok=False)
     for i, (result, points) in enumerate(zip(results, results_points)):
