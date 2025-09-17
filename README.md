@@ -2,7 +2,7 @@
 
 Find moving objects in detection catalogs.
 
-<img width="927" height="647" alt="image" src="https://github.com/user-attachments/assets/12a91e90-d20e-4712-8846-a59e6e0f6cf7" />
+<img width="960" height="720" alt="image" src="https://github.com/user-attachments/assets/1ce78a36-8a80-4db7-97bc-27c4a7e2d67f"/>
 
 Usage ([docs/notebooks/search.ipynb](https://github.com/stevenstetzler/find_asteroids/tree/main/docs/notebooks/search.ipynb))
 
