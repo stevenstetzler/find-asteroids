@@ -12,7 +12,7 @@ $ python -m pip install find-asteroids
 Usage ([docs/notebooks/search.ipynb](https://github.com/stevenstetzler/find_asteroids/tree/main/docs/notebooks/search.ipynb)):
 ```
 $ find_asteroids --help
-usage: find_asteroids.search [-h] --catalog CATALOG [--psfs PSFS] --velocity VELOCITY VELOCITY --angle ANGLE
+usage: find_asteroids [-h] --catalog CATALOG [--psfs PSFS] --velocity VELOCITY VELOCITY --angle ANGLE
                              ANGLE --dx DX --num-results NUM_RESULTS --results-dir RESULTS_DIR [--precompute]
                              [--gpu] [--gpu-kernels] [--device DEVICE] [--output-format OUTPUT_FORMAT]
 
