@@ -27,10 +27,10 @@ dependencies = [
 description = "Find moving objects in detection catalogs."
 
 [project.urls]
-"Source Code" = "https://github.com/stevenstetzler/find_asteroids"
+"Source Code" = "https://github.com/stevenstetzler/find-asteroids"
 
 [project.scripts]
-find_asteroids = "find_asteroids.search:main"
+find-asteroids = "find_asteroids.search:main"
 
 [tool.setuptools_scm]
 write_to = "src/find_asteroids/_version.py"

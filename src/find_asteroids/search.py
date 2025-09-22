@@ -173,7 +173,7 @@ def search(X, directions, dx, reference_time, num_results=10, precompute=False, 
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(prog="find_asteroids", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser = argparse.ArgumentParser(prog="find-asteroids", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--catalog", required=True, type=Path, help="The detection catalog to search. An astropy-readable table containing at least 'ra', 'dec', and 'time' columns (with units).")
     parser.add_argument("--psfs", required=False, default=None, type=Path, help="An astropy-readable table containing a 'psf' column (with units) that specifies the PSF-widths of the images from which the detection catalog is derived. If not provided, a value of 1 arcsec is assumed.")
     parser.add_argument("--velocity", required=True, nargs=2, type=float, help="The velocity range over which to search, in units of deg/day.")
