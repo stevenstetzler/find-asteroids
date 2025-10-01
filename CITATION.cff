@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+title: "Find asteroids in detection catalogs."
+version: 0.1.1
+license: "MIT"
+type: software
+abstract: "A Python package that can find moving objects in (low-SNR) detection catalogs."
+message: "If you use this software, please cite it as below."
+authors:
+  - given-names: Steven
+    family-names: Stetzler
+    affiliation: University of Washington
+    orcid: "https://orcid.org/0000-0002-7712-6678"
+keywords:
+  - asteroids
+  - moving objects
+  - asteroid discovery
+  - solar system
