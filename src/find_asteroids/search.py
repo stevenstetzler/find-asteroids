@@ -213,12 +213,14 @@ def main():
 
     directions = SearchDirections([vmin, vmax], [phimin, phimax], dx, dt)
     log.info("searching %d directions", len(directions.b))
+    
+    args.results_dir.mkdir(parents=True, exist_ok=False)
+    
     if args.gpu_kernels:
         results, results_points = search_gpu(X, directions, dx, reference_epoch.value, num_results=args.num_results)
     else:
         results, results_points = search(X, directions, dx, reference_epoch.value, num_results=args.num_results, precompute=args.precompute, gpu=args.gpu)
-
-    args.results_dir.mkdir(parents=True, exist_ok=False)
+    
     for i, (result, points) in enumerate(zip(results, results_points)):
         # refine
         try:
