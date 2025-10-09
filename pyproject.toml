@@ -39,5 +39,6 @@ local_scheme = "no-local-version"
 
 [project.optional-dependencies]
 dev = [
-    "matplotlib" # Used for examples
+    "matplotlib", # Used for examples
+    "pytest"
 ]
