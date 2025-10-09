@@ -1,7 +1,7 @@
 # find-asteroids
 
 
-[![DOI](https://zenodo.org/badge/1058178358.svg)](https://doi.org/10.5281/zenodo.17139782)
+[![PyPI - Version](https://img.shields.io/pypi/v/find-asteroids?color=brightgreen)](https://pypi.org/project/find-asteroids/) [![DOI](https://zenodo.org/badge/1058178358.svg)](https://doi.org/10.5281/zenodo.17139782) 
 
 
 Find moving objects in detection catalogs.
