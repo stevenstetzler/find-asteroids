@@ -195,11 +195,11 @@ def main():
     if args.psfs:
         psfs = astropy.table.Table.read(args.psfs)['psf']
         log.info("seeing [min, median, max]: [%f, %f, %f]", np.min(psfs), np.median(psfs), np.max(psfs))
-        psf_scaling = np.median(psfs)
+        psf_scaling = np.median(psfs) * psfs.unit
     else:
         psf_scaling = 1 * u.arcsec
 
-    dx = args.dx * psf_scaling * psfs.unit
+    dx = args.dx * psf_scaling
     log.info(f"using dx = {dx}")
     catalog = astropy.table.Table.read(args.catalog)
 
