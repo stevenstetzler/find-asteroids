@@ -2,8 +2,8 @@ name: Publish Python 🐍 distribution 📦 to TestPyPI
 
 on:
   push:
-    branches: [ "master" ]
-    
+    branches: [ "main" ]
+
 permissions:
   contents: read
 
