@@ -186,6 +186,7 @@ def main():
     parser.add_argument("--gpu-kernels", action='store_true', help="Run the entirety of the search algorithm on the GPU.")
     parser.add_argument("--device", type=int, required=False, default=-1, help="The GPU device number to use.")
     parser.add_argument("--output-format", type=str, default='ecsv', help="The astropy.table supported format for writing results.")
+    parser.add_argument("--refine-iterations", type=int, default=1, help="The number of times to refine a candidate result.")
 
     args = parser.parse_args()
 
@@ -224,8 +225,12 @@ def main():
     for i, (result, points) in enumerate(zip(results, results_points)):
         # refine
         try:
-            mcdr = refine(points)
-            gathered = gather(mcdr, X[:, 0], X[:, 1], X[:, 2], 1/3600)
+            _points = points
+            for i in range(args.refine_iterations):
+                mcdr = refine(_points)
+                gathered = gather(mcdr, X[:, 0], X[:, 1], X[:, 2], 1/3600)
+                _points = catalog[gathered]
+                _points = np.array([_points['ra'], _points['dec'], _points['time']]).T
         except Exception as e:
             log.error(str(e))
             continue
