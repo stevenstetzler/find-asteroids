@@ -226,7 +226,7 @@ def main():
         # refine
         try:
             _points = points
-            for i in range(args.refine_iterations):
+            for j in range(args.refine_iterations):
                 mcdr = refine(_points)
                 gathered = gather(mcdr, X[:, 0], X[:, 1], X[:, 2], 1/3600)
                 _points = catalog[gathered]
