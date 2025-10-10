@@ -1,7 +1,7 @@
 # find-asteroids
 
 
-[![PyPI - Version](https://img.shields.io/pypi/v/find-asteroids?color=brightgreen)](https://pypi.org/project/find-asteroids/) [![DOI](https://zenodo.org/badge/1058178358.svg)](https://doi.org/10.5281/zenodo.17139782) 
+[![PyPI - Version](https://img.shields.io/pypi/v/find-asteroids?color=brightgreen)](https://pypi.org/project/find-asteroids/) [![arXiv](https://img.shields.io/badge/arXiv-2509.26279-b31b1b.svg)]([https://arxiv.org/abs/1234.56789](https://arxiv.org/abs/2509.26279)](https://arxiv.org/abs/2509.26279)) [![DOI](https://zenodo.org/badge/1058178358.svg)](https://doi.org/10.5281/zenodo.17139782) 
 
 
 Find moving objects in detection catalogs.
@@ -57,4 +57,4 @@ optional arguments:
 ```
 
 References:
-- Stetzler, S. et al. (2025) An Efficient Shift-and-Stack Algorithm Applied to Detection Catalogs
+- Stetzler, S. et al. (2025) An Efficient Shift-and-Stack Algorithm Applied to Detection Catalogs; [arXiv:2509.26279](https://arxiv.org/abs/2509.26279)
