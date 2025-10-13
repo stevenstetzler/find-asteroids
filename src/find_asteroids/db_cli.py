@@ -202,23 +202,23 @@ def search(session, name, collection, search_parameters, num_results, precompute
             log.error(str(e))
             continue
         
-        r = Result(id=i, x=result[0], y=result[1], direction=result[2], n=result[3])
+        r = Result(id=int(i), x=int(result[0]), y=int(result[1]), direction=int(result[2]), n=int(result[3]))
         reference_sky_pos = mcdr.predict(np.atleast_2d([reference_epoch.value]))
         t = Tracklet(
-            vra=mcdr.beta[0, 0],
-            vdec=mcdr.beta[0, 1],
-            ra0=mcdr.alpha[0],
-            dec0=mcdr.alpha[1],
-            raRef=reference_sky_pos[0][0],
-            decRef=reference_sky_pos[0][1],
-            timeRef=reference_epoch.value,
-            timeMin=_points[:, 2].min(),
-            timeMax=_points[:, 2].max(),
-            sigma_vra=mcdr.sigma_e[0, 0]**0.5,
-            sigma_vdec=mcdr.sigma_e[1, 1]**0.5,
-            sigma_vravdec=mcdr.sigma_e[0, 1],
-            sigma_vdecvra=mcdr.sigma_e[1, 0],
-            sigma_t=mcdr.sigma_xx[0, 0],
+            vra=float(mcdr.beta[0, 0]),
+            vdec=float(mcdr.beta[0, 1]),
+            ra0=float(mcdr.alpha[0]),
+            dec0=float(mcdr.alpha[1]),
+            raRef=float(reference_sky_pos[0][0]),
+            decRef=float(reference_sky_pos[0][1]),
+            timeRef=float(reference_epoch.value),
+            timeMin=float(_points[:, 2].min()),
+            timeMax=float(_points[:, 2].max()),
+            sigma_vra=float(mcdr.sigma_e[0, 0]**0.5),
+            sigma_vdec=float(mcdr.sigma_e[1, 1]**0.5),
+            sigma_vravdec=float(mcdr.sigma_e[0, 1]),
+            sigma_vdecvra=float(mcdr.sigma_e[1, 0]),
+            sigma_t=float(mcdr.sigma_xx[0, 0]),
             result=r
         )
         _search.results.append(r)
