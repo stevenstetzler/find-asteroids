@@ -83,13 +83,25 @@ def db_cli():
 
 def insert_detections(session, catalog, name='catalog', echo=False):
     import astropy.table
+    import astropy.units as u
+
     t = astropy.table.Table.read(catalog)
-    detections = []
     catalog = Catalog(name=name)
+    detections = []
+    t['ra'] = t['ra'].to(u.deg).value
+    t['dec'] = t['dec'].to(u.deg).value
+    t['time'] = t['time'].to(u.day).value
     for r in t:
-        detections.append(Detection(ra=r['ra'], dec=r['dec'], time=r['time'], catalog=catalog))
-            
-    session.add(catalog)
+        detections.append(
+            Detection(
+                ra=r['ra'].item(),
+                dec=r['dec'].item(),
+                time=r['time'].item(),
+                catalog=catalog
+            )
+        )
+
+    session.add_all(detections)
     session.commit()
 
 def insert_psfs(session, psfs, name='psfs'):
@@ -97,7 +109,7 @@ def insert_psfs(session, psfs, name='psfs'):
     import astropy.units as u
     widths = astropy.table.Table.read(psfs)['psf'].to(u.arcsec).value
     psfs = PSFs(name=name)
-    session.add_all(list(map(lambda x : PSFWidth(width=x, psfs=psfs), widths)))
+    session.add_all(list(map(lambda x : PSFWidth(width=x.item(), psfs=psfs), widths)))
     session.commit()
 
 def create_collection(session, catalogs, psfs, name='collection'):
@@ -197,12 +209,20 @@ def search(session, name, collection, search_parameters, num_results, precompute
             for j in range(parameters.refine_iterations):
                 mcdr = refine(_points)
                 gathered = gather(mcdr, X[:, 0], X[:, 1], X[:, 2], 1/3600)
+                _point_ids = _catalog[gathered, 0]
                 _points = _catalog[gathered, 1:4]
         except Exception as e:
             log.error(str(e))
             continue
         
-        r = Result(id=int(i), x=int(result[0]), y=int(result[1]), direction=int(result[2]), n=int(result[3]))
+        r = Result(
+            id=int(i), 
+            x=int(result[0]), 
+            y=int(result[1]), 
+            direction=int(result[2]), 
+            n=int(result[3]),
+            detections=list(map(lambda x : session.query(Detection).filter(Detection.id == x).first(), _point_ids))
+        )
         reference_sky_pos = mcdr.predict(np.atleast_2d([reference_epoch.value]))
         t = Tracklet(
             vra=float(mcdr.beta[0, 0]),

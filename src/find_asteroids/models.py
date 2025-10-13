@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    Column, Integer, Float, String, ForeignKey, Table, Index
+    Column, Integer, Float, String, ForeignKey, Table, Index, MetaData
 )
 from sqlalchemy.orm import relationship, declarative_base
 
@@ -40,7 +40,6 @@ class Catalog(Base):
         back_populates="catalog", 
         cascade="all, delete-orphan"
     )
-
 
 class Detection(Base):
     __tablename__ = "detection"
