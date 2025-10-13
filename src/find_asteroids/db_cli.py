@@ -221,6 +221,7 @@ def search(session, name, collection, search_parameters, num_results, precompute
             sigma_t=mcdr.sigma_xx[0, 0],
             result=r
         )
+        _search.results.append(t)
         _search.tracklets.append(t)
     if new_search:
         session.add(_search)
