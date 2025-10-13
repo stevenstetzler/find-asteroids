@@ -22,7 +22,8 @@ requires-python = ">=3.9"
 dependencies = [
     "astropy",
     "numba",
-    "mcd-regression"
+    "mcd-regression",
+    "sqlalchemy"
 ]
 description = "Find moving objects in detection catalogs."
 
@@ -31,6 +32,7 @@ description = "Find moving objects in detection catalogs."
 
 [project.scripts]
 find-asteroids = "find_asteroids.search:main"
+find-asteroids-db = "find_asteroids.db_cli:db_cli"
 
 [tool.setuptools_scm]
 write_to = "src/find_asteroids/_version.py"
