@@ -195,7 +195,7 @@ def main():
     
     if args.psfs:
         psfs = astropy.table.Table.read(args.psfs)['psf']
-        log.info("seeing [min, median, max]: [%f, %f, %f]", np.min(psfs), np.median(psfs), np.max(psfs))
+        log.info("seeing [min, median, max]: [%f, %f, %f] %s", np.min(psfs), np.median(psfs), np.max(psfs), psfs.unit)
         psf_scaling = np.median(psfs) * psfs.unit
     else:
         psf_scaling = 1 * u.arcsec
@@ -228,12 +228,25 @@ def main():
             _points = points
             for j in range(args.refine_iterations):
                 mcdr = refine(_points)
-                gathered = gather(mcdr, X[:, 0], X[:, 1], X[:, 2], 1/3600)
+                gathered = gather(mcdr, X[:, 0], X[:, 1], X[:, 2], dx.to(u.deg).value)
                 _points = catalog[gathered]
                 _points = np.array([_points['ra'], _points['dec'], _points['time']]).T
         except Exception as e:
             log.error(str(e))
             continue
+
+        try:
+            n1 = gather(mcdr, X[:, 0], X[:, 1], X[:, 2], 1 * psf_scaling.to(u.deg).value).sum()
+            n2 = gather(mcdr, X[:, 0], X[:, 1], X[:, 2], 2 * psf_scaling.to(u.deg).value).sum()
+            n5 = gather(mcdr, X[:, 0], X[:, 1], X[:, 2], 5 * psf_scaling.to(u.deg).value).sum()
+            n10 = gather(mcdr, X[:, 0], X[:, 1], X[:, 2], 10 * psf_scaling.to(u.deg).value).sum()
+        except Exception as e:
+            log.error(str(e))
+            n1 = -1
+            n2 = -1
+            n5 = -1
+            n10 = -1
+        
         d = args.results_dir / str(i)
         d.mkdir(parents=True, exist_ok=True)
         astropy.table.Table(
@@ -243,6 +256,10 @@ def main():
                     "y": result[1],
                     "direction": result[2],
                     "n": result[3],
+                    "n1": n1,
+                    "n2": n2,
+                    "n5": n5,
+                    "n10": n10,
                 }
             ]
         ).write(d / f"result.{args.output_format}")
