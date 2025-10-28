@@ -22,7 +22,8 @@ requires-python = ">=3.9"
 dependencies = [
     "astropy",
     "numba",
-    "mcd-regression"
+    "mcd-regression",
+    "sqlalchemy"
 ]
 description = "Find moving objects in detection catalogs."
 
@@ -41,4 +42,8 @@ local_scheme = "no-local-version"
 dev = [
     "matplotlib", # Used for examples
     "pytest"
+]
+
+pipeline = [
+    "mlflow"
 ]

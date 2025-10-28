@@ -171,62 +171,44 @@ def search(X, directions, dx, reference_time, num_results=10, precompute=False, 
     
     return results, results_points
 
-def main():
-    import argparse
-    parser = argparse.ArgumentParser(prog="find-asteroids", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--catalog", required=True, type=Path, help="The detection catalog to search. An astropy-readable table containing at least 'ra', 'dec', and 'time' columns (with units).")
-    parser.add_argument("--psfs", required=False, default=None, type=Path, help="An astropy-readable table containing a 'psf' column (with units) that specifies the PSF-widths of the images from which the detection catalog is derived. If not provided, a value of 1 arcsec is assumed.")
-    parser.add_argument("--velocity", required=True, nargs=2, type=float, help="The velocity range over which to search, in units of deg/day.")
-    parser.add_argument("--angle", required=True, nargs=2, type=float, help="The on-sky angles over which to search, in units of deg.")
-    parser.add_argument("--dx", required=True, type=float, help="Search bin-width, in units of the PSF-width.")
-    parser.add_argument("--num-results", required=True, type=int, help="Number of results to produce.")
-    parser.add_argument("--results-dir", type=Path, required=True, help="The directory into which to write results.")
-    parser.add_argument("--precompute", action='store_true', help="Precompute projected positions of detections for all trial velocities (uses more memory, but may be faster).")
-    parser.add_argument("--gpu", action='store_true', help="Run the core-search components of the algorithm on GPU.")
-    parser.add_argument("--gpu-kernels", action='store_true', help="Run the entirety of the search algorithm on the GPU.")
-    parser.add_argument("--device", type=int, required=False, default=-1, help="The GPU device number to use.")
-    parser.add_argument("--output-format", type=str, default='ecsv', help="The astropy.table supported format for writing results.")
-    parser.add_argument("--refine-iterations", type=int, default=1, help="The number of times to refine a candidate result.")
-
-    args = parser.parse_args()
-
-    if args.gpu and args.device > -1:
-        cuda.select_device(args.device)
+def run_search(catalog, psfs, velocity, angle, dx, num_results, results_dir, precompute=False, gpu=False, gpu_kernels=False, device=-1, output_format='ecsv', refine_iterations=1):
+    if gpu and device > -1:
+        cuda.select_device(device)
     
-    if args.psfs:
-        psfs = astropy.table.Table.read(args.psfs)['psf']
+    if psfs:
+        psfs = astropy.table.Table.read(psfs)['psf']
         log.info("seeing [min, median, max]: [%f, %f, %f] %s", np.min(psfs), np.median(psfs), np.max(psfs), psfs.unit)
         psf_scaling = np.median(psfs) * psfs.unit
     else:
         psf_scaling = 1 * u.arcsec
 
-    dx = args.dx * psf_scaling
+    dx = dx * psf_scaling
     log.info(f"using dx = {dx}")
-    catalog = astropy.table.Table.read(args.catalog)
+    catalog = astropy.table.Table.read(catalog)
 
     X = np.array([catalog['ra'], catalog['dec'], catalog['time']]).T
     reference_epoch = X[:, 2].min() * u.day
     dt = (X[:, 2].max() - X[:, 2].min()) * u.day
-    vmin = args.velocity[0] * u.deg/u.day
-    vmax = args.velocity[1] * u.deg/u.day
-    phimin = args.angle[0] * u.deg
-    phimax = args.angle[1] * u.deg
+    vmin = velocity[0] * u.deg/u.day
+    vmax = velocity[1] * u.deg/u.day
+    phimin = angle[0] * u.deg
+    phimax = angle[1] * u.deg
 
     directions = SearchDirections([vmin, vmax], [phimin, phimax], dx, dt)
     log.info("searching %d directions", len(directions.b))
     
-    args.results_dir.mkdir(parents=True, exist_ok=False)
+    results_dir.mkdir(parents=True, exist_ok=False)
     
-    if args.gpu_kernels:
-        results, results_points = search_gpu(X, directions, dx, reference_epoch.value, num_results=args.num_results)
+    if gpu_kernels:
+        results, results_points = search_gpu(X, directions, dx, reference_epoch.value, num_results=num_results)
     else:
-        results, results_points = search(X, directions, dx, reference_epoch.value, num_results=args.num_results, precompute=args.precompute, gpu=args.gpu)
+        results, results_points = search(X, directions, dx, reference_epoch.value, num_results=num_results, precompute=precompute, gpu=gpu)
     
     for i, (result, points) in enumerate(zip(results, results_points)):
         # refine
         try:
             _points = points
-            for j in range(args.refine_iterations):
+            for j in range(refine_iterations):
                 mcdr = refine(_points)
                 gathered = gather(mcdr, X[:, 0], X[:, 1], X[:, 2], dx.to(u.deg).value)
                 _points = catalog[gathered]
@@ -234,7 +216,6 @@ def main():
         except Exception as e:
             log.error(str(e))
             continue
-
         try:
             n1 = gather(mcdr, X[:, 0], X[:, 1], X[:, 2], 1 * psf_scaling.to(u.deg).value).sum()
             n2 = gather(mcdr, X[:, 0], X[:, 1], X[:, 2], 2 * psf_scaling.to(u.deg).value).sum()
@@ -247,9 +228,9 @@ def main():
             n5 = -1
             n10 = -1
         
-        d = args.results_dir / str(i)
+        d = results_dir / str(i)
         d.mkdir(parents=True, exist_ok=True)
-        astropy.table.Table(
+        t = astropy.table.Table(
             [
                 {
                     "x": result[0],
@@ -262,10 +243,11 @@ def main():
                     "n10": n10,
                 }
             ]
-        ).write(d / f"result.{args.output_format}")
+        )
+        t.write(d / f"result.{output_format}")
 
         reference_sky_pos = mcdr.predict(np.atleast_2d([reference_epoch.value]))
-        astropy.table.Table(
+        t = astropy.table.Table(
             [
                 {
                     "vra": mcdr.beta[0, 0] * u.deg/u.day,
@@ -284,7 +266,8 @@ def main():
                     "sigma_t": mcdr.sigma_xx[0, 0] * u.day,
                 }
             ]
-        ).write(d / f"tracklet.{args.output_format}")
+        )
+        t.write(d / f"tracklet.{output_format}")
 
         t = astropy.table.Table(
             [
@@ -297,12 +280,100 @@ def main():
             ]
         )
         t.sort("time")
-        t.write(d / f"points.{args.output_format}")
+        t.write(d / f"points.{output_format}")
 
         t = catalog[gathered]
         t.sort("time")
-        t.write(d / f"gathered.{args.output_format}")
+        t.write(d / f"gathered.{output_format}")
+    
 
+def run_search_mlflow(experiment, *args, tracking_uri=None, tags=[], **kwargs):
+    import mlflow
+    import importlib
+    print(experiment)
+    print(args)
+    if tracking_uri:
+        mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_experiment(experiment)
+    with mlflow.start_run() as run:
+        run_id = run.info.run_id
+        print(f"MLflow Run ID: {run_id}")
+        for k, v in tags:
+            mlflow.set_tag(k, v)
+        
+        mlflow.set_tag("versions_find_asteroids", importlib.metadata.version("find_asteroids"))
+
+        for key, value in kwargs.items():
+            if key in ["velocity", "angle"]:
+                mlflow.log_param(f"{key}_1", value[0])
+                mlflow.log_param(f"{key}_2", value[1])
+            else:
+                mlflow.log_param(key, value)
+        
+        run_search(*args, **kwargs)
+        if 'results_dir' in kwargs:
+            results_dir = kwargs['results_dir']
+        else:
+            results_dir = args[-1]
+        mlflow.log_artifacts(results_dir, artifact_path="results")
+        return run_id
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(prog="find-asteroids", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument("--catalog", required=True, type=Path, help="The detection catalog to search. An astropy-readable table containing at least 'ra', 'dec', and 'time' columns (with units).")
+    parser.add_argument("--psfs", required=False, default=None, type=Path, help="An astropy-readable table containing a 'psf' column (with units) that specifies the PSF-widths of the images from which the detection catalog is derived. If not provided, a value of 1 arcsec is assumed.")
+    parser.add_argument("--velocity", required=True, nargs=2, type=float, help="The velocity range over which to search, in units of deg/day.")
+    parser.add_argument("--angle", required=True, nargs=2, type=float, help="The on-sky angles over which to search, in units of deg.")
+    parser.add_argument("--dx", required=True, type=float, help="Search bin-width, in units of the PSF-width.")
+    parser.add_argument("--num-results", required=True, type=int, help="Number of results to produce.")
+    parser.add_argument("--results-dir", type=Path, required=True, help="The directory into which to write results.")
+    parser.add_argument("--precompute", action='store_true', help="Precompute projected positions of detections for all trial velocities (uses more memory, but may be faster).")
+    parser.add_argument("--gpu", action='store_true', help="Run the core-search components of the algorithm on GPU.")
+    parser.add_argument("--gpu-kernels", action='store_true', help="Run the entirety of the search algorithm on the GPU.")
+    parser.add_argument("--device", type=int, required=False, default=-1, help="The GPU device number to use.")
+    parser.add_argument("--output-format", type=str, default='ecsv', help="The astropy.table supported format for writing results.")
+    parser.add_argument("--refine-iterations", type=int, default=1, help="The number of times to refine a candidate result.")
+    parser.add_argument("--compile-results", action='store_true', help="Compile results from individual result directories into single files in the results directory.")
+    parser.add_argument("--experiment", type=str, default=None, help="Run as MLFlow experiment with this experiment name. If not provided, runs without MLFlow")
+    parser.add_argument("--tags", nargs="+", default=[], help="Tags to add to the MLFlow run, in key=value format.")
+    parser.add_argument("--tracking-uri", type=str, default=None, help="MLFlow tracking URI to use. If not provided, uses the default MLFlow tracking URI.")
+    parser.add_argument("--results-db-uri", type=str, default=None, help="If provided, the results database URI to use when compiling results from MLFlow experiments.")
+
+    args = parser.parse_args()
+
+    do_compile = args.compile_results
+    delattr(args, "compile_results")
+    results_db_uri = args.results_db_uri
+    delattr(args, "results_db_uri")
+    experiment = args.experiment
+    delattr(args, "experiment")
+    
+    if experiment:
+        args.tags = [tuple(tag.split("=", 1)) for tag in args.tags]
+        run_id = run_search_mlflow(experiment, **vars(args))
+    else:
+        delattr(args, "tags")
+        delattr(args, "tracking_uri")
+        run_search(**vars(args))
+
+    if do_compile:
+        if results_db_uri:
+            from .results import compile_results_db
+            if experiment:
+                compile_results_db(results_db_uri, experiment, reader='mlflow', output_format=args.output_format, run_id=run_id)
+            else:
+                compile_results_db(results_db_uri, args.results_dir, reader='local', output_format=args.output_format)
+        else:
+            from .results import compile_results_astropy
+            if experiment:
+                for name, tbl in compile_results_astropy(experiment, reader='mlflow', output_format=args.output_format, run_id=run_id):
+                    print("writing compiled results to", args.results_dir / f"{name}.{args.output_format}")
+                    tbl.write(args.results_dir / f"{name}.{args.output_format}")
+            else:
+                for name, tbl in compile_results_astropy(args.results_dir, reader='local', output_format=args.output_format):
+                    print("writing compiled results to", args.results_dir / f"{name}.{args.output_format}")
+                    tbl.write(args.results_dir / f"{name}.{args.output_format}")
 
 if __name__ == "__main__":
     main()
