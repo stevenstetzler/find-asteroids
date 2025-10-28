@@ -290,8 +290,6 @@ def run_search(catalog, psfs, velocity, angle, dx, num_results, results_dir, pre
 def run_search_mlflow(experiment, *args, tracking_uri=None, tags=[], **kwargs):
     import mlflow
     import importlib
-    print(experiment)
-    print(args)
     if tracking_uri:
         mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(experiment)
