@@ -208,3 +208,7 @@ __marimo__/
 
 docs/notebooks/results
 _version.py
+
+# MLflow artifacts
+mlruns/
+mlflow.db
