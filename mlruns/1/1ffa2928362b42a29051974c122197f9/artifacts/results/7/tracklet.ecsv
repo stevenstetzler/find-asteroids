@@ -1,0 +1,20 @@
+# %ECSV 1.0
+# ---
+# datatype:
+# - {name: vra, unit: deg / d, datatype: float64}
+# - {name: vdec, unit: deg / d, datatype: float64}
+# - {name: ra_0, unit: deg, datatype: float64}
+# - {name: dec_0, unit: deg, datatype: float64}
+# - {name: ra_ref, datatype: float64}
+# - {name: dec_ref, datatype: float64}
+# - {name: tref, unit: d, datatype: float64}
+# - {name: tmin, unit: d, datatype: float64}
+# - {name: tmax, unit: d, datatype: float64}
+# - {name: sigma_vra, unit: deg / d, datatype: float64}
+# - {name: sigma_vdec, unit: deg / d, datatype: float64}
+# - {name: sigma_vravdec, unit: deg2 / d2, datatype: float64}
+# - {name: sigma_vdecvra, unit: deg2 / d2, datatype: float64}
+# - {name: sigma_t, unit: d, datatype: float64}
+# schema: astropy-2.0
+vra vdec ra_0 dec_0 ra_ref dec_ref tref tmin tmax sigma_vra sigma_vdec sigma_vravdec sigma_vdecvra sigma_t
+-0.14901482947193764 0.15268744845661475 8944.900042680032 -8955.028919837006 216.02624828223998 -11.023331336851697 58577.21560552204 58577.21560552204 58577.376813050825 2.5089917348729466e-05 2.4302792432770643e-05 -5.7239965060005595e-12 -5.723996512776823e-12 0.002465341616280242

@@ -1,0 +1,14 @@
+# %ECSV 1.0
+# ---
+# datatype:
+# - {name: x, datatype: int64}
+# - {name: y, datatype: int64}
+# - {name: direction, datatype: int64}
+# - {name: n, datatype: int64}
+# - {name: n1, datatype: int64}
+# - {name: n2, datatype: int64}
+# - {name: n5, datatype: int64}
+# - {name: n10, datatype: int64}
+# schema: astropy-2.0
+x y direction n n1 n2 n5 n10
+2732 56 81 88 88 88 88 89

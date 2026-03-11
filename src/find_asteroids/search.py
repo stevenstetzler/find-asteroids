@@ -295,8 +295,11 @@ def run_search_mlflow(experiment, *args, tracking_uri=None, tags=[], **kwargs):
     mlflow.set_experiment(experiment)
     with mlflow.start_run() as run:
         run_id = run.info.run_id
-        print(f"MLflow Run ID: {run_id}")
-        for k, v in tags:
+        log.info("MLflow Run ID: %s", run_id)
+        for tag in tags:
+            if not (isinstance(tag, (tuple, list)) and len(tag) == 2):
+                raise ValueError(f"Each tag must be a tuple or list of length 2, got: {tag!r}")
+            k, v = tag
             mlflow.set_tag(k, v)
         
         mlflow.set_tag("versions_find_asteroids", importlib.metadata.version("find_asteroids"))
@@ -366,11 +369,11 @@ def main():
             from .results import compile_results_astropy
             if experiment:
                 for name, tbl in compile_results_astropy(experiment, reader='mlflow', output_format=args.output_format, run_id=run_id):
-                    print("writing compiled results to", args.results_dir / f"{name}.{args.output_format}")
+                    log.info("writing compiled results to %s", args.results_dir / f"{name}.{args.output_format}")
                     tbl.write(args.results_dir / f"{name}.{args.output_format}")
             else:
                 for name, tbl in compile_results_astropy(args.results_dir, reader='local', output_format=args.output_format):
-                    print("writing compiled results to", args.results_dir / f"{name}.{args.output_format}")
+                    log.info("writing compiled results to %s", args.results_dir / f"{name}.{args.output_format}")
                     tbl.write(args.results_dir / f"{name}.{args.output_format}")
 
 if __name__ == "__main__":
