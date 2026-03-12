@@ -20,12 +20,18 @@ Run this script from the docs/ directory:
     python mlflow_search.py
 
 The script will:
-  1. Run a find-asteroids search under an MLFlow experiment.
-  2. List all experiments in the local MLFlow tracking store.
+  1. Run a find-asteroids search under an MLFlow experiment, logging
+     all search parameters via mlflow.log_param.
+  2. List all experiments in the MLFlow tracking store.
   3. List the runs recorded under the experiment, printing their
      parameters and tags.
   4. Compile the results across all runs and print a summary of
      the result table.
+
+This script uses a SQLite database (``mlflow.db`` in the current
+directory) as the MLFlow tracking URI.  This persists experiment data
+between Python sessions.  Change ``TRACKING_URI`` to ``None`` to use
+the default local ``mlruns/`` directory instead.
 """
 
 import tempfile
@@ -48,10 +54,15 @@ PSFS    = Path(__file__).parent / "notebooks" / "psfs.ecsv"
 # MLFlow experiment name.  Change this to group related runs together.
 EXPERIMENT_NAME = "asteroid-search-example"
 
+# MLFlow tracking URI.  Using a SQLite database persists experiment data
+# between Python sessions.  Set to None to use the default local
+# mlruns/ directory instead.
+TRACKING_URI = "sqlite:///mlflow.db"
+
 # Search parameters
-VELOCITY  = [0.1, 0.5]   # deg / day  [min, max]
-ANGLE     = [0, 359.99]  # deg        [min, max]
-DX        = 10            # bin-width in PSF units (i.e. 10 × median PSF width)
+VELOCITY    = [0.1, 0.5]   # deg / day  [min, max]
+ANGLE       = [0, 359.99]  # deg        [min, max]
+DX          = 10            # bin-width in PSF units (i.e. 10 × median PSF width)
 NUM_RESULTS = 10
 
 
@@ -59,15 +70,22 @@ NUM_RESULTS = 10
 # 1. Run a search and record it with MLFlow
 # ---------------------------------------------------------------------------
 
-def run_experiment(results_dir: Path) -> str:
+def run_experiment(results_dir: Path, tracking_uri: str = None) -> str:
     """
     Run a find-asteroids search inside an MLFlow run and return the run ID.
+
+    Search parameters are passed as keyword arguments so that they are
+    automatically logged by ``run_search_mlflow`` via ``mlflow.log_param``.
 
     Parameters
     ----------
     results_dir : Path
         Directory where per-result files will be written.  The directory
         must not already exist; it is created by the search.
+    tracking_uri : str, optional
+        MLFlow tracking URI.  Defaults to None (local mlruns/ directory).
+        Use a SQLite URI such as ``"sqlite:///mlflow.db"`` to persist
+        results between Python sessions.
 
     Returns
     -------
@@ -77,14 +95,15 @@ def run_experiment(results_dir: Path) -> str:
     print(f"\n=== Running search under experiment '{EXPERIMENT_NAME}' ===")
     run_id = run_search_mlflow(
         EXPERIMENT_NAME,
-        str(CATALOG),
-        str(PSFS),
-        VELOCITY,
-        ANGLE,
-        DX,
-        NUM_RESULTS,
-        results_dir,
+        tracking_uri=tracking_uri,
         tags=[("dataset", "example-catalog")],
+        catalog=str(CATALOG),
+        psfs=str(PSFS),
+        velocity=VELOCITY,
+        angle=ANGLE,
+        dx=DX,
+        num_results=NUM_RESULTS,
+        results_dir=results_dir,
     )
     print(f"Finished.  MLFlow run ID: {run_id}")
     return run_id
@@ -94,8 +113,18 @@ def run_experiment(results_dir: Path) -> str:
 # 2. List all experiments
 # ---------------------------------------------------------------------------
 
-def print_experiments() -> None:
-    """Print every experiment registered in the current MLFlow tracking store."""
+def print_experiments(tracking_uri: str = None) -> None:
+    """
+    Print every experiment registered in the MLFlow tracking store.
+
+    Parameters
+    ----------
+    tracking_uri : str, optional
+        MLFlow tracking URI.  If provided, sets the global tracking URI
+        before querying.
+    """
+    if tracking_uri:
+        mlflow.set_tracking_uri(tracking_uri)
     client = MlflowClient()
     experiments = client.search_experiments()
 
@@ -116,7 +145,7 @@ def print_experiments() -> None:
 # 3. List runs inside a specific experiment
 # ---------------------------------------------------------------------------
 
-def print_runs(experiment_name: str) -> None:
+def print_runs(experiment_name: str, tracking_uri: str = None) -> None:
     """
     Print all runs recorded under *experiment_name*, including their
     parameters and custom tags.
@@ -125,7 +154,12 @@ def print_runs(experiment_name: str) -> None:
     ----------
     experiment_name : str
         The name of the MLFlow experiment to inspect.
+    tracking_uri : str, optional
+        MLFlow tracking URI.  If provided, sets the global tracking URI
+        before querying.
     """
+    if tracking_uri:
+        mlflow.set_tracking_uri(tracking_uri)
     client = MlflowClient()
     exp = client.get_experiment_by_name(experiment_name)
     if exp is None:
@@ -159,7 +193,7 @@ def print_runs(experiment_name: str) -> None:
 # 4. Compile results across all runs and print a summary
 # ---------------------------------------------------------------------------
 
-def print_compiled_results(experiment_name: str) -> None:
+def print_compiled_results(experiment_name: str, tracking_uri: str = None) -> None:
     """
     Compile result tables from all runs in *experiment_name* and print
     a summary of each table.
@@ -177,7 +211,12 @@ def print_compiled_results(experiment_name: str) -> None:
     ----------
     experiment_name : str
         The name of the MLFlow experiment to compile results from.
+    tracking_uri : str, optional
+        MLFlow tracking URI.  If provided, sets the global tracking URI
+        before querying.
     """
+    if tracking_uri:
+        mlflow.set_tracking_uri(tracking_uri)
     print(f"\n=== Compiled results for experiment '{experiment_name}' ===")
 
     for name, table in compile_results_astropy(
@@ -194,14 +233,14 @@ def print_compiled_results(experiment_name: str) -> None:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    # Use a temporary directory so re-running the script doesn't fail with
-    # "directory already exists".  Replace with a fixed path if you want to
-    # keep the results on disk.
+    # Use a temporary directory for the search results.  The results are
+    # uploaded to the MLFlow tracking store as artifacts, so the temporary
+    # directory can safely be removed after the run completes.
     with tempfile.TemporaryDirectory() as tmpdir:
         results_dir = Path(tmpdir) / "results"
 
-        run_experiment(results_dir)
+        run_experiment(results_dir, tracking_uri=TRACKING_URI)
 
-    print_experiments()
-    print_runs(EXPERIMENT_NAME)
-    print_compiled_results(EXPERIMENT_NAME)
+    print_experiments(tracking_uri=TRACKING_URI)
+    print_runs(EXPERIMENT_NAME, tracking_uri=TRACKING_URI)
+    print_compiled_results(EXPERIMENT_NAME, tracking_uri=TRACKING_URI)
