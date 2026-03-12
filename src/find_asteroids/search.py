@@ -287,11 +287,18 @@ def run_search(catalog, psfs, velocity, angle, dx, num_results, results_dir, pre
         t.write(d / f"gathered.{output_format}")
     
 
-def run_search_mlflow(experiment, *args, tracking_uri=None, tags=[], **kwargs):
+def run_search_mlflow(experiment, *args, tracking_uri=None, artifact_location=None, tags=[], **kwargs):
     import mlflow
     import importlib
     if tracking_uri:
         mlflow.set_tracking_uri(tracking_uri)
+    if artifact_location:
+        client = mlflow.tracking.MlflowClient()
+        existing = client.get_experiment_by_name(experiment)
+        if existing is None:
+            mlflow.create_experiment(experiment, artifact_location=str(artifact_location))
+        # If the experiment already exists, artifact_location is ignored and artifacts
+        # continue to be stored at the location set when the experiment was created.
     mlflow.set_experiment(experiment)
     with mlflow.start_run() as run:
         run_id = run.info.run_id
