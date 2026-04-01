@@ -101,8 +101,8 @@ def find_voters_bins(hough: np.ndarray, bins: np.ndarray, mask_dir, mask_x, mask
     return _mask
 
 @numba.njit(parallel=True)
-def vote_points_weighted(hough: np.ndarray, X: np.ndarray, directions: np.ndarray, x_min, y_min, dx, dy, reference_time, coef, coef_index):
-    """Like vote_points, but weights each point's contribution by X[i, coef_index] * coef."""
+def vote_points_weighted(hough: np.ndarray, X: np.ndarray, directions: np.ndarray, x_min, y_min, dx, dy, reference_time, coef, weight_index):
+    """Like vote_points, but weights each point's contribution by X[i, weight_index] * coef."""
     n, d = X.shape
     num_dir = directions.shape[0]
     for dir_idx in numba.prange(num_dir):  # for each direction
@@ -113,13 +113,13 @@ def vote_points_weighted(hough: np.ndarray, X: np.ndarray, directions: np.ndarra
                 x_prime, y_prime = project_xyz(p[0], p[1], p[2], direction[0], direction[1], reference_time)
                 x_idx, y_idx = digitize_point(x_prime, y_prime, x_min, y_min, dx, dy)
                 if 0 <= x_idx < hough.shape[1] and 0 <= y_idx < hough.shape[2]:
-                    hough[dir_idx, x_idx, y_idx] += p[coef_index] * coef
+                    hough[dir_idx, x_idx, y_idx] += p[weight_index] * coef
     return hough
 
 
 @numba.njit(parallel=True)
-def vote_bins_weighted(hough: np.ndarray, bins: np.ndarray, coefs: np.ndarray, coef):
-    """Like vote_bins, but weights each point's contribution by coefs[i] * coef."""
+def vote_bins_weighted(hough: np.ndarray, bins: np.ndarray, weights: np.ndarray, coef):
+    """Like vote_bins, but weights each point's contribution by weights[i] * coef."""
     n, num_dir, _ = bins.shape
     for dir_idx in numba.prange(num_dir):  # for each direction
         if dir_idx < num_dir:
@@ -127,7 +127,7 @@ def vote_bins_weighted(hough: np.ndarray, bins: np.ndarray, coefs: np.ndarray, c
                 x_idx = bins[i, dir_idx, 0]
                 y_idx = bins[i, dir_idx, 1]
                 if 0 <= x_idx < hough.shape[1] and 0 <= y_idx < hough.shape[2]:
-                    hough[dir_idx, x_idx, y_idx] += coefs[i] * coef
+                    hough[dir_idx, x_idx, y_idx] += weights[i] * coef
     return hough
 
 

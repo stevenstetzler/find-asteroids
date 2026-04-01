@@ -2,7 +2,7 @@
 
 Covers:
 - load_fits_images (loader.py)
-- search() with coef_index parameter (search.py)
+- search() with weight_index parameter (search.py)
 - search_image() (search.py)
 """
 
@@ -138,11 +138,11 @@ def test_load_fits_images_no_time_raises(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Tests for search() with coef_index
+# Tests for search() with weight_index
 # ---------------------------------------------------------------------------
 
-def test_search_with_coef_index(tmp_path):
-    """search() should accept coef_index and weight votes by X[:, coef_index]."""
+def test_search_with_weight_index(tmp_path):
+    """search() should accept weight_index and weight votes by X[:, weight_index]."""
     from find_asteroids.search import search
     from find_asteroids.directions import SearchDirections
 
@@ -160,7 +160,7 @@ def test_search_with_coef_index(tmp_path):
     )
 
     results, results_points = search(
-        X, directions, dx, X[:, 2].min(), num_results=3, coef_index=3
+        X, directions, dx, X[:, 2].min(), num_results=3, weight_index=3
     )
 
     assert results.shape == (3, 4)
@@ -169,8 +169,8 @@ def test_search_with_coef_index(tmp_path):
         assert pts.shape[1] == 4  # X has 4 columns
 
 
-def test_search_with_coef_index_precompute(tmp_path):
-    """search() with coef_index should also work in precompute mode."""
+def test_search_with_weight_index_precompute(tmp_path):
+    """search() with weight_index should also work in precompute mode."""
     from find_asteroids.search import search
     from find_asteroids.directions import SearchDirections
 
@@ -188,7 +188,7 @@ def test_search_with_coef_index_precompute(tmp_path):
     )
 
     results, results_points = search(
-        X, directions, dx, X[:, 2].min(), num_results=3, precompute=True, coef_index=3
+        X, directions, dx, X[:, 2].min(), num_results=3, precompute=True, weight_index=3
     )
 
     assert results.shape == (3, 4)

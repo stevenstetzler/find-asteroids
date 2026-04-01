@@ -355,8 +355,8 @@ def find_voters_points(hough, X, directions, x_min, y_min, dx, dy, reference_tim
 
 
 @cuda.jit
-def _vote_points_weighted(hough, X, directions, x_min, y_min, dx, dy, reference_time, coef, coef_index):
-    """GPU kernel: like _vote_points but weights each vote by X[point_idx, coef_index] * coef."""
+def _vote_points_weighted(hough, X, directions, x_min, y_min, dx, dy, reference_time, coef, weight_index):
+    """GPU kernel: like _vote_points but weights each vote by X[point_idx, weight_index] * coef."""
     dir_idx = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
     point_idx = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
 
@@ -371,11 +371,11 @@ def _vote_points_weighted(hough, X, directions, x_min, y_min, dx, dy, reference_
     x_idx, y_idx = digitize_point(x_prime, y_prime, x_min, y_min, dx, dy)
 
     if 0 <= x_idx < hough.shape[1] and 0 <= y_idx < hough.shape[2]:
-        cuda.atomic.add(hough, (dir_idx, x_idx, y_idx), p[coef_index] * coef)
+        cuda.atomic.add(hough, (dir_idx, x_idx, y_idx), p[weight_index] * coef)
 
 
-def vote_points_weighted(hough: np.ndarray, X: np.ndarray, directions: np.ndarray, x_min, y_min, dx, dy, reference_time, coef: np.float64, coef_index: int):
-    """Host function: like vote_points but weights each vote by X[:, coef_index] * coef."""
+def vote_points_weighted(hough: np.ndarray, X: np.ndarray, directions: np.ndarray, x_min, y_min, dx, dy, reference_time, coef: np.float64, weight_index: int):
+    """Host function: like vote_points but weights each vote by X[:, weight_index] * coef."""
     n, d = X.shape
     num_dir = directions.shape[0]
 
@@ -392,7 +392,7 @@ def vote_points_weighted(hough: np.ndarray, X: np.ndarray, directions: np.ndarra
     )
 
     _vote_points_weighted[blocks_per_grid, threads_per_block](
-        d_hough, d_X, d_directions, x_min, y_min, dx, dy, reference_time, coef, coef_index
+        d_hough, d_X, d_directions, x_min, y_min, dx, dy, reference_time, coef, weight_index
     )
 
     # Copy back the updated Hough space
@@ -400,8 +400,8 @@ def vote_points_weighted(hough: np.ndarray, X: np.ndarray, directions: np.ndarra
 
 
 @cuda.jit
-def _vote_bins_weighted(hough, bins, coefs, coef):
-    """GPU kernel: like _vote_bins but weights each vote by coefs[point_idx] * coef."""
+def _vote_bins_weighted(hough, bins, weights, coef):
+    """GPU kernel: like _vote_bins but weights each vote by weights[point_idx] * coef."""
     dir_idx = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
     point_idx = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
 
@@ -414,17 +414,17 @@ def _vote_bins_weighted(hough, bins, coefs, coef):
     y_idx = bins[point_idx, dir_idx, 1]
 
     if 0 <= x_idx < hough.shape[1] and 0 <= y_idx < hough.shape[2]:
-        cuda.atomic.add(hough, (dir_idx, x_idx, y_idx), coefs[point_idx] * coef)
+        cuda.atomic.add(hough, (dir_idx, x_idx, y_idx), weights[point_idx] * coef)
 
 
-def vote_bins_weighted(hough: np.ndarray, bins: np.ndarray, coefs: np.ndarray, coef: np.float64):
-    """Host function: like vote_bins but weights each vote by coefs[i] * coef."""
+def vote_bins_weighted(hough: np.ndarray, bins: np.ndarray, weights: np.ndarray, coef: np.float64):
+    """Host function: like vote_bins but weights each vote by weights[i] * coef."""
     n, num_dir, _ = bins.shape
 
     # Transfer data to GPU
     d_hough = cuda.to_device(hough)
     d_bins = cuda.to_device(bins)
-    d_coefs = cuda.to_device(coefs)
+    d_weights = cuda.to_device(weights)
 
     # Configure GPU threads and blocks
     threads_per_block = (16, 16)  # Tunable parameters
@@ -434,7 +434,7 @@ def vote_bins_weighted(hough: np.ndarray, bins: np.ndarray, coefs: np.ndarray, c
     )
 
     _vote_bins_weighted[blocks_per_grid, threads_per_block](
-        d_hough, d_bins, d_coefs, coef
+        d_hough, d_bins, d_weights, coef
     )
 
     # Copy back the updated Hough space
