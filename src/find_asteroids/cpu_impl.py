@@ -101,6 +101,37 @@ def find_voters_bins(hough: np.ndarray, bins: np.ndarray, mask_dir, mask_x, mask
     return _mask
 
 @numba.njit(parallel=True)
+def vote_points_weighted(hough: np.ndarray, X: np.ndarray, directions: np.ndarray, x_min, y_min, dx, dy, reference_time, coef, coef_index):
+    """Like vote_points, but weights each point's contribution by X[i, coef_index] * coef."""
+    n, d = X.shape
+    num_dir = directions.shape[0]
+    for dir_idx in numba.prange(num_dir):  # for each direction
+        if dir_idx < num_dir:
+            direction = directions[dir_idx]
+            for i in range(n):  # for each point
+                p = X[i]
+                x_prime, y_prime = project_xyz(p[0], p[1], p[2], direction[0], direction[1], reference_time)
+                x_idx, y_idx = digitize_point(x_prime, y_prime, x_min, y_min, dx, dy)
+                if 0 <= x_idx < hough.shape[1] and 0 <= y_idx < hough.shape[2]:
+                    hough[dir_idx, x_idx, y_idx] += p[coef_index] * coef
+    return hough
+
+
+@numba.njit(parallel=True)
+def vote_bins_weighted(hough: np.ndarray, bins: np.ndarray, coefs: np.ndarray, coef):
+    """Like vote_bins, but weights each point's contribution by coefs[i] * coef."""
+    n, num_dir, _ = bins.shape
+    for dir_idx in numba.prange(num_dir):  # for each direction
+        if dir_idx < num_dir:
+            for i in range(n):  # for each point
+                x_idx = bins[i, dir_idx, 0]
+                y_idx = bins[i, dir_idx, 1]
+                if 0 <= x_idx < hough.shape[1] and 0 <= y_idx < hough.shape[2]:
+                    hough[dir_idx, x_idx, y_idx] += coefs[i] * coef
+    return hough
+
+
+@numba.njit(parallel=True)
 def find_voters_points(hough: np.ndarray, X: np.ndarray, directions: np.ndarray, x_min, y_min, dx, dy, reference_time, mask_dir, mask_x, mask_y):
     n, d = X.shape
     num_dir = directions.shape[0]
