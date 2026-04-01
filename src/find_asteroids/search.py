@@ -94,11 +94,11 @@ def search_gpu(X, directions, dx, reference_time, num_results=10):
     
     return d_results.copy_to_host()
 
-def search(X, directions, dx, reference_time, num_results=10, precompute=False, gpu=False):
+def search(X, directions, dx, reference_time, num_results=10, precompute=False, gpu=False, weight_index=-1):
     if gpu:
-        from .gpu_impl import projected_bounds, hough_max, make_bins, vote_points, vote_bins, find_voters_points, find_voters_bins
+        from .gpu_impl import projected_bounds, hough_max, make_bins, vote_points, vote_bins, find_voters_points, find_voters_bins, vote_points_weighted, vote_bins_weighted
     else:
-        from .cpu_impl import projected_bounds, hough_max, make_bins, vote_points, vote_bins, find_voters_points, find_voters_bins
+        from .cpu_impl import projected_bounds, hough_max, make_bins, vote_points, vote_bins, find_voters_points, find_voters_bins, vote_points_weighted, vote_bins_weighted
 
     def find_clusters_points(X, hough, directions, x_min, y_min, dx, dy, reference_time, n=10):
         results = np.full((n, 4), -1)
@@ -111,9 +111,14 @@ def search(X, directions, dx, reference_time, num_results=10, precompute=False, 
                 hough, X, directions.b, x_min, y_min, dx, dy, reference_time, *idx
             )
             mask = include & voters
-            hough = vote_points(
-                hough, X[mask], directions.b, x_min, y_min, dx, dy, reference_time, -1
-            )
+            if weight_index >= 0:
+                hough = vote_points_weighted(
+                    hough, X[mask], directions.b, x_min, y_min, dx, dy, reference_time, -1.0, weight_index
+                )
+            else:
+                hough = vote_points(
+                    hough, X[mask], directions.b, x_min, y_min, dx, dy, reference_time, -1
+                )
             include &= ~voters # exclude voters
             print(include.sum(), "/", X.shape[0], "points remain")
             results[i, 0] = idx[0]
@@ -128,6 +133,7 @@ def search(X, directions, dx, reference_time, num_results=10, precompute=False, 
         results = np.full((n, 4), -1)
         results_points = []
         include = np.full(bins.shape[0], True)
+        weights = X[:, weight_index].astype(np.float64) if weight_index >= 0 else None
         for i in range(n):
             idx, val = hough_max(hough)
             print("cluster has value", val, "at", idx)
@@ -135,9 +141,14 @@ def search(X, directions, dx, reference_time, num_results=10, precompute=False, 
                 hough, bins, *idx
             )
             mask = include & voters
-            hough = vote_bins(
-                hough, bins[mask], -1
-            )
+            if weight_index >= 0:
+                hough = vote_bins_weighted(
+                    hough, bins[mask], weights[mask], -1.0
+                )
+            else:
+                hough = vote_bins(
+                    hough, bins[mask], -1
+                )
             include &= ~voters # exclude voters
             print(include.sum(), "/", X.shape[0], "points remain")
             results[i, 0] = idx[0]
@@ -159,17 +170,110 @@ def search(X, directions, dx, reference_time, num_results=10, precompute=False, 
     num_y = int((y_max - y_min) / _dy  + 1)
 
     log.info("creating hough space with shape (%d, %d, %d)", num_dir, num_x, num_y)
-    hough = np.zeros((num_dir, num_x, num_y), dtype=np.uint32)    
+    hough_dtype = np.float64 if weight_index >= 0 else np.uint32
+    hough = np.zeros((num_dir, num_x, num_y), dtype=hough_dtype)
     
     if precompute:
         bins = make_bins(X, directions.b, x_min, y_min, _dx, _dy, reference_time)
-        hough = vote_bins(hough, bins, 1)
+        if weight_index >= 0:
+            weights = X[:, weight_index].astype(np.float64)
+            hough = vote_bins_weighted(hough, bins, weights, 1.0)
+        else:
+            hough = vote_bins(hough, bins, 1)
         results, results_points = find_clusters_bins(X, bins, hough, n=num_results)
     else:
-        hough = vote_points(hough, X, directions.b, x_min, y_min, _dx, _dy, reference_time, 1)
+        if weight_index >= 0:
+            hough = vote_points_weighted(hough, X, directions.b, x_min, y_min, _dx, _dy, reference_time, 1.0, weight_index)
+        else:
+            hough = vote_points(hough, X, directions.b, x_min, y_min, _dx, _dy, reference_time, 1)
         results, results_points = find_clusters_points(X, hough, directions, x_min, y_min, _dx, _dy, reference_time, n=num_results)
     
     return results, results_points
+
+def search_image(fits_files, velocity_range, angle_range, num_results=10, precompute=False, gpu=False):
+    """Search for moving objects in a sequence of FITS images.
+
+    This is a convenience wrapper that:
+
+    1. Loads each FITS file into a detection catalog (one row per pixel) using
+       :func:`find_asteroids.loader.load_fits_images`.
+    2. Derives the search bin width ``dx`` from the pixel scale of the first
+       FITS file.
+    3. Builds a :class:`~find_asteroids.directions.SearchDirections` grid.
+    4. Calls :func:`search` with ``weight_index=3`` so that pixel flux values are
+       used as per-point voting weights.
+
+    Parameters
+    ----------
+    fits_files : list of str or pathlib.Path
+        FITS image files to search.  Each file must contain a valid 2-D WCS
+        and a time keyword (``MJD-OBS`` or ``DATE-OBS``).
+    velocity_range : list of astropy.units.Quantity
+        ``[v_min, v_max]`` velocity search range (e.g.
+        ``[0.1 * u.deg/u.day, 0.5 * u.deg/u.day]``).
+    angle_range : list of astropy.units.Quantity
+        ``[phi_min, phi_max]`` on-sky angle search range (e.g.
+        ``[0 * u.deg, 180 * u.deg]``).
+    num_results : int, optional
+        Number of candidate results to return (default 10).
+    precompute : bool, optional
+        If ``True``, pre-compute all bin assignments before searching (uses
+        more memory but may be faster for large catalogs).
+    gpu : bool, optional
+        If ``True``, use the GPU for core voting operations.
+
+    Returns
+    -------
+    results : numpy.ndarray, shape (num_results, 4)
+        Array of ``[direction_idx, x_bin, y_bin, total_flux]`` for each
+        candidate result.
+    results_points : list of numpy.ndarray
+        Each element is an ``N × 4`` array of detection points
+        ``[ra, dec, time, flux]`` belonging to the corresponding candidate.
+    """
+    from astropy.io import fits
+    from astropy.wcs import WCS
+    from .loader import load_fits_images
+
+    # Load all FITS files into a single detection catalog.
+    catalog = load_fits_images(fits_files)
+
+    # Derive dx = 1 pixel scale from the first FITS file's WCS.
+    with fits.open(fits_files[0]) as hdul:
+        ext = 0
+        while ext < len(hdul) and hdul[ext].data is None:
+            ext += 1
+        wcs = WCS(hdul[ext].header, naxis=2)
+        pixel_scales = wcs.proj_plane_pixel_scales()
+    dx = np.abs(pixel_scales[0]).to(u.deg)
+
+    # Build a 4-column X array: [ra, dec, time, flux].
+    X = np.array(
+        [
+            catalog["ra"].to(u.deg).value,
+            catalog["dec"].to(u.deg).value,
+            catalog["time"].to(u.day).value,
+            np.asarray(catalog["flux"], dtype=float),
+        ]
+    ).T
+
+    reference_time = X[:, 2].min()
+    dt = (X[:, 2].max() - X[:, 2].min()) * u.day
+
+    directions = SearchDirections(velocity_range, angle_range, dx, dt)
+    log.info("search_image: searching %d directions", len(directions.b))
+
+    return search(
+        X,
+        directions,
+        dx,
+        reference_time,
+        num_results=num_results,
+        precompute=precompute,
+        gpu=gpu,
+        weight_index=3,
+    )
+
 
 def main():
     import argparse
