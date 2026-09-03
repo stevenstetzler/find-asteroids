@@ -292,10 +292,14 @@ def test_compile_results_db_catalog_with_id_column():
             assert sorted(g.id for g in gathered) == list(range(1, len(gathered) + 1))
             # ...while the source catalog's 'id'/'detector'/'visit' survive in
             # `extra`, stored (and read back) as a plain dict -- not a
-            # JSON-encoded string requiring a second json.loads() to unpack.
+            # JSON-encoded string requiring a second json.loads() to unpack --
+            # with their native int type preserved, not stringified.
             extra = gathered[0].extra
             assert isinstance(extra, dict)
             assert {"id", "detector", "visit"} <= extra.keys()
+            assert isinstance(extra["id"], int)
+            assert isinstance(extra["detector"], int)
+            assert isinstance(extra["visit"], int)
 
 
 def test_main_results_dir_defaults_to_tempdir_with_results_db_uri():
@@ -478,3 +482,52 @@ def test_main_stores_params(tmp_path):
 
         results = session.query(Result).all()
         assert all(r.search_id == search.id for r in results)
+
+
+def test_json_safe():
+    """_json_safe() preserves native Python types instead of stringifying,
+    for the kinds of values that show up in a compiled results table:
+    numpy scalars (via .item()), astropy Time (via .tai.mjd), and anything
+    else passed through unchanged."""
+    from find_asteroids.results import _json_safe
+    from astropy.time import Time
+    import numpy as np
+
+    assert _json_safe(np.int64(5)) == 5 and isinstance(_json_safe(np.int64(5)), int)
+    assert _json_safe(np.float64(1.5)) == 1.5 and isinstance(_json_safe(np.float64(1.5)), float)
+    assert _json_safe(np.bool_(True)) is True
+    assert _json_safe(np.str_("hi")) == "hi" and isinstance(_json_safe(np.str_("hi")), str)
+
+    t = Time(58576.5, format='mjd', scale='tt')
+    assert _json_safe(t) == t.tai.mjd
+
+    assert _json_safe(3) == 3  # plain Python values pass through unchanged
+    assert _json_safe("x") == "x"
+    assert _json_safe(None) is None
+
+
+def test_compile_results_db_extra_preserves_numeric_types():
+    """extra's values keep their native int/float type -- e.g. flux/
+    sigma_x from the fixture catalog -- rather than being stringified."""
+    from find_asteroids.search import run_search
+    from find_asteroids.results import compile_results_db
+    from find_asteroids.models import Gathered
+    from tempfile import TemporaryDirectory
+    from pathlib import Path
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    with TemporaryDirectory() as tmpdir:
+        results_dir = Path(tmpdir) / "results"
+        run_search("docs/notebooks/catalog.ecsv", "docs/notebooks/psfs.ecsv", [0.1, 0.5], [0, 359.99], 10, 3, results_dir)
+
+        db_uri = f"sqlite:///{tmpdir}/results.db"
+        compile_results_db(db_uri, results_dir, run_id="extra-types-test")
+
+        engine = create_engine(db_uri)
+        with Session(engine) as session:
+            extra = session.query(Gathered).first().extra
+            assert isinstance(extra["flux"], float)
+            assert isinstance(extra["sigma_x"], float)
+            assert isinstance(extra["exposures"], int)
+            assert isinstance(extra["detectors"], int)

@@ -4,6 +4,25 @@ from astropy.time import Time
 log = logging.getLogger(__name__)
 
 
+def _json_safe(v):
+    """Coerce a table cell value into something a JSON/Float/... DB column
+    can bind directly, preserving its native type rather than stringifying
+    it: numpy scalars (int64/float64/bool_/str_/...) become their native
+    Python int/float/bool/str via `.item()`, and Time values become their
+    MJD in the TAI scale (find-asteroids' canonical convention -- see
+    normalize_time() in search.py). Anything else is passed through as-is.
+    """
+    if isinstance(v, Time):
+        # store the DB's canonical convention (MJD, TAI) regardless of what
+        # scale/format the value already carried -- run_search() already
+        # normalizes to this, but enforce it here too rather than trust
+        # every possible caller to have done so.
+        return v.tai.mjd
+    if hasattr(v, 'item'):
+        return v.item()
+    return v
+
+
 def read_results(results_dir: Path, name: str, output_format='ecsv'):
     """Yield one dict per row of `results_dir/<result_num>/<name>.<output_format>`,
     for every result_num subdirectory (see run_search), tagged with its
@@ -103,23 +122,15 @@ def compile_results_db(results_db_uri, results_dir, run_id, params=None, output_
 
             def do_add(row):
                 # filter the row to only include columns that are in the model
-                filtered_row = {k: v for k, v in row.items() if k in model_columns}
-                for k, v in filtered_row.items():
-                    if isinstance(v, Time):
-                        # store the DB's canonical convention (MJD, TAI)
-                        # regardless of what scale/format the value already
-                        # carried -- run_search() already normalizes to
-                        # this, but enforce it here too rather than trust
-                        # every possible caller to have done so.
-                        filtered_row[k] = v.tai.mjd
-                    elif hasattr(v, 'item'):  # convert numpy types to python types
-                        filtered_row[k] = v.item()
+                filtered_row = {k: _json_safe(v) for k, v in row.items() if k in model_columns}
                 # Assign the plain dict directly -- `extra` is a JSON column,
                 # so the column type handles serialization itself. (Do not
                 # json.dumps() this first: that would serialize it a second
                 # time, storing a JSON-encoded *string* instead of an object,
-                # which then needs an extra json.loads() to unpack.)
-                filtered_row['extra'] = {str(k): str(v) for k, v in row.items() if k not in model_columns}
+                # which then needs an extra json.loads() to unpack.) Values
+                # keep their native int/float/bool/str type via _json_safe()
+                # rather than being stringified.
+                filtered_row['extra'] = {str(k): _json_safe(v) for k, v in row.items() if k not in model_columns}
 
                 obj = cls(**filtered_row)
                 session.add(obj)
