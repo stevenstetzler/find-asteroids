@@ -296,7 +296,10 @@ def run_search_mlflow(experiment, *args, tracking_uri=None, tags=[], **kwargs):
     with mlflow.start_run() as run:
         run_id = run.info.run_id
         print(f"MLflow Run ID: {run_id}")
-        for k, v in tags:
+        for tag in tags:
+            if not (isinstance(tag, (tuple, list)) and len(tag) == 2):
+                raise ValueError(f"Each tag must be a tuple or list of length 2, got: {tag!r}")
+            k, v = tag
             mlflow.set_tag(k, v)
         
         mlflow.set_tag("versions_find_asteroids", importlib.metadata.version("find_asteroids"))
