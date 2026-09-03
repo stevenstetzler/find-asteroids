@@ -6,11 +6,37 @@ from numba import cuda
 import astropy.table
 
 import astropy.units as u
+from astropy.time import Time
 from pathlib import Path
 import logging
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
+
+
+def normalize_time(time_col):
+    """Normalize a catalog's 'time' column to an astropy Time in the TAI
+    scale.
+
+    If `time_col` is already an astropy Time (e.g. the caller wrote
+    `catalog['time'] = Time(mjd_values, format='mjd', scale='utc')`), its
+    scale is used directly. Otherwise -- a plain Quantity/Column in units
+    of time, with no scale attached -- it's assumed to be MJD in the UTC
+    scale (astropy.time.Time's own default scale for format='mjd'), and a
+    warning is logged. There's no way to recover the correct scale from a
+    bare number; pass a Time-typed 'time' column to avoid this assumption.
+    """
+    if isinstance(time_col, Time):
+        t = time_col
+    else:
+        log.warning(
+            "catalog['time'] is not an astropy Time column, so its time scale "
+            "is unknown; assuming MJD, UTC scale. Pass a Time-typed 'time' "
+            "column (e.g. Time(values, format='mjd', scale='utc')) to avoid "
+            "this assumption."
+        )
+        t = Time(time_col.to(u.day).value, format='mjd', scale='utc')
+    return t.tai
 
 def search_gpu(X, directions, dx, reference_time, num_results=10):
     from .gpu_impl import projected_bounds, _vote_points, _vote_points_mask, _find_voters_points, _hough_max
@@ -204,7 +230,20 @@ def main():
     log.info(f"using dx = {dx}")
     catalog = astropy.table.Table.read(args.catalog)
 
-    X = np.array([catalog['ra'], catalog['dec'], catalog['time']]).T
+    # Normalize to find-asteroids' internal working convention: ra/dec in
+    # degrees, time as an astropy Time in the TAI scale (uniform, no leap
+    # seconds -- the search itself only ever uses time differences, which
+    # are scale-invariant among uniform scales, so this is free/safe to do
+    # once here rather than juggle the source scale throughout). RA is
+    # intentionally *not* wrapped to [0, 360) here -- that's applied only
+    # when writing results (below), not to this internal working copy,
+    # since wrapping first would introduce a spurious discontinuity for any
+    # object whose track crosses ra=0 during the linear refine fit.
+    catalog['ra'] = catalog['ra'].to(u.deg)
+    catalog['dec'] = catalog['dec'].to(u.deg)
+    catalog['time'] = normalize_time(catalog['time'])
+
+    X = np.array([catalog['ra'].value, catalog['dec'].value, catalog['time'].mjd]).T
     reference_epoch = X[:, 2].min() * u.day
     dt = (X[:, 2].max() - X[:, 2].min()) * u.day
     vmin = args.velocity[0] * u.deg/u.day
@@ -230,7 +269,7 @@ def main():
                 mcdr = refine(_points)
                 gathered = gather(mcdr, X[:, 0], X[:, 1], X[:, 2], dx.to(u.deg).value)
                 _points = catalog[gathered]
-                _points = np.array([_points['ra'], _points['dec'], _points['time']]).T
+                _points = np.array([_points['ra'].value, _points['dec'].value, _points['time'].mjd]).T
         except Exception as e:
             log.error(str(e))
             continue
@@ -270,13 +309,17 @@ def main():
                 {
                     "vra": mcdr.beta[0, 0] * u.deg/u.day,
                     "vdec": mcdr.beta[0, 1] * u.deg/u.day,
-                    "ra_0": mcdr.alpha[0] * u.deg,
+                    "ra_0": (mcdr.alpha[0] % 360) * u.deg,
                     "dec_0": mcdr.alpha[1] * u.deg,
-                    "ra_ref": reference_sky_pos[0][0],
-                    "dec_ref": reference_sky_pos[0][1],
-                    "tref": reference_epoch,
-                    "tmin": points[:, 2].min() * u.day,
-                    "tmax": points[:, 2].max() * u.day,
+                    # mcdr.predict() returns plain (unitless) floats in the
+                    # same deg-valued working convention as mcdr.alpha, not
+                    # Quantities -- ra_ref/dec_ref previously had no unit
+                    # attached at all here, unlike ra_0/dec_0.
+                    "ra_ref": (reference_sky_pos[0][0] % 360) * u.deg,
+                    "dec_ref": reference_sky_pos[0][1] * u.deg,
+                    "tref": Time(reference_epoch.value, format='mjd', scale='tai'),
+                    "tmin": Time(points[:, 2].min(), format='mjd', scale='tai'),
+                    "tmax": Time(points[:, 2].max(), format='mjd', scale='tai'),
                     "sigma_vra": mcdr.sigma_e[0, 0]**0.5 * u.deg/u.day,
                     "sigma_vdec": mcdr.sigma_e[1, 1]**0.5 * u.deg/u.day,
                     "sigma_vravdec": mcdr.sigma_e[0, 1] * (u.deg/u.day)**2,
@@ -289,9 +332,9 @@ def main():
         t = astropy.table.Table(
             [
                 {
-                    "ra": p[0] * u.deg,
+                    "ra": (p[0] % 360) * u.deg,
                     "dec": p[1] * u.deg,
-                    "time": p[2] * u.day,
+                    "time": Time(p[2], format='mjd', scale='tai'),
                 }
                 for p in points
             ]
@@ -300,6 +343,7 @@ def main():
         t.write(d / f"points.{args.output_format}")
 
         t = catalog[gathered]
+        t['ra'] = t['ra'] % (360 * u.deg)  # wrap only at write time, see note above
         t.sort("time")
         t.write(d / f"gathered.{args.output_format}")
 
