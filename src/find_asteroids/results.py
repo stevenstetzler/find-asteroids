@@ -5,18 +5,9 @@ log = logging.getLogger(__name__)
 
 
 def _json_safe(v):
-    """Coerce a table cell value into something a JSON/Float/... DB column
-    can bind directly, preserving its native type rather than stringifying
-    it: numpy scalars (int64/float64/bool_/str_/...) become their native
-    Python int/float/bool/str via `.item()`, and Time values become their
-    MJD in the TAI scale (find-asteroids' canonical convention -- see
-    normalize_time() in search.py). Anything else is passed through as-is.
-    """
+    """Coerce numpy scalars to native Python types (.item()) and Time
+    values to MJD/TAI, so they serialize correctly instead of stringifying."""
     if isinstance(v, Time):
-        # store the DB's canonical convention (MJD, TAI) regardless of what
-        # scale/format the value already carried -- run_search() already
-        # normalizes to this, but enforce it here too rather than trust
-        # every possible caller to have done so.
         return v.tai.mjd
     if hasattr(v, 'item'):
         return v.item()
@@ -73,22 +64,12 @@ def compile_results_astropy(results_dir, output_format='ecsv'):
 
 
 def compile_results_db(results_db_uri, results_dir, run_id, params=None, output_format='ecsv', echo=False):
-    """Insert a run's results_dir into the database at `results_db_uri`,
-    linking every Result row to a Search row for the given (caller-
-    supplied, opaque) `run_id`.
+    """Insert a run's results_dir into `results_db_uri`, linking every
+    Result row to a Search row for `run_id`.
 
-    If a Search row for `run_id` doesn't exist yet, one is created from
-    `params` -- a dict of the parameters that produced this run (e.g.
-    velocity_0/velocity_1/angle_0/angle_1/dx/catalog/..., see
-    params_for_db() in search.py); keys that aren't a column on Search are
-    ignored. If a Search row for `run_id` already exists (e.g. this
-    function is called more than once for the same run), it's reused as-is
-    -- `params` is not applied to it on a repeat call.
-
-    Columns from the compiled tables that aren't part of the Result/
-    Gathered/Points/Tracklet models (see models.py) -- e.g. extra metadata
-    carried through from the input detection catalog -- are preserved in
-    each row's `extra` JSON column rather than dropped.
+    A Search row for `run_id` is created from `params` (unrecognized keys
+    ignored) if one doesn't already exist, otherwise the existing row is
+    reused as-is. Columns not in a model are preserved per-row in `extra`.
     """
     from sqlalchemy import create_engine, inspect
     from sqlalchemy.orm import Session
@@ -97,7 +78,6 @@ def compile_results_db(results_db_uri, results_dir, run_id, params=None, output_
 
     results_dir = Path(results_dir)
     engine = create_engine(results_db_uri, echo=echo)
-    # create the database from models if it does not exist
     if not inspect(engine).has_table('result'):
         Base.metadata.create_all(engine)
 
@@ -112,26 +92,16 @@ def compile_results_db(results_db_uri, results_dir, run_id, params=None, output_
         results = {}  # result_num -> Result object, for linking child rows
         for name in ['result', 'gathered', 'points', 'tracklet']:
             cls = importlib.import_module('find_asteroids.models').__dict__[name.capitalize()]
-            # get the column names from the model, excluding the primary key:
-            # it's always DB-assigned, never taken from source data -- input
-            # catalogs commonly have their own unrelated 'id' column (e.g. a
-            # per-image detection id), which would otherwise collide with
-            # this table's own row identity instead of falling through to
-            # `extra` where it belongs.
+            # exclude 'id': it's DB-assigned, but input catalogs commonly
+            # have their own unrelated 'id' column that would otherwise
+            # collide with it instead of falling through to `extra`.
             model_columns = {c.name for c in cls.__table__.columns} - {'id'}
 
             def do_add(row):
-                # filter the row to only include columns that are in the model
                 filtered_row = {k: _json_safe(v) for k, v in row.items() if k in model_columns}
-                # Assign the plain dict directly -- `extra` is a JSON column,
-                # so the column type handles serialization itself. (Do not
-                # json.dumps() this first: that would serialize it a second
-                # time, storing a JSON-encoded *string* instead of an object,
-                # which then needs an extra json.loads() to unpack.) Values
-                # keep their native int/float/bool/str type via _json_safe()
-                # rather than being stringified.
+                # assign a dict, not json.dumps(dict): the column type
+                # serializes it; dumping first would double-encode it.
                 filtered_row['extra'] = {str(k): _json_safe(v) for k, v in row.items() if k not in model_columns}
-
                 obj = cls(**filtered_row)
                 session.add(obj)
                 return obj
@@ -144,9 +114,5 @@ def compile_results_db(results_db_uri, results_dir, run_id, params=None, output_
                     row['result_id'] = results[row.pop('result_num')].id
                     do_add(row)
             if name == 'result':
-                # Assign auto-increment ids for the rows just added, since
-                # they're read back (via .id, above) to link the child
-                # tables -- plain attribute access doesn't trigger an
-                # autoflush, so without this every *_id ends up NULL.
-                session.flush()
+                session.flush()  # assign ids before 'gathered'/etc. reference them via .id
         session.commit()

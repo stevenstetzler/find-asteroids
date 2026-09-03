@@ -205,12 +205,8 @@ def test_compile_results_db():
 
 
 def test_compile_results_db_stores_normalized_units(tmp_path):
-    """The database's ra/time columns must hold find-asteroids' canonical
-    convention (degrees in [0, 360), MJD in the TAI scale) regardless of
-    what units/scale the input catalog used -- run_search() writes Time-
-    typed columns to the intermediate result tables, and Time isn't a type
-    a Float DB column can bind directly, so compile_results_db must convert
-    it explicitly rather than pass it through."""
+    """ra/time in the DB are always degrees in [0, 360) / MJD-TAI, even
+    from a radians input catalog with no Time-typed 'time' column."""
     from find_asteroids.search import run_search
     from find_asteroids.results import compile_results_db
     from find_asteroids.models import Gathered

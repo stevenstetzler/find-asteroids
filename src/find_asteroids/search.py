@@ -14,25 +14,20 @@ import socket
 logging.basicConfig()
 log = logging.getLogger(__name__)
 
-# CLI args whose value is a fixed-length list -- broken out into individual
-# <name>_<i> fields in params_for_db() rather than stored as a list, so
-# they're queryable as plain scalar columns/JSON fields instead of an array.
+# args broken out into <name>_0, <name>_1, ... fields by params_for_db(),
+# rather than stored as a list.
 LIST_PARAMS = ("velocity", "angle")
 
 
 def params_for_db(args: dict, results_dir_is_tempdir: bool) -> dict:
     """Build a JSON-serializable params dict (see compile_results_db) from
-    main()'s parsed CLI args (as a plain dict, e.g. vars(parsed_args)).
+    main()'s parsed CLI args (e.g. vars(parsed_args)).
 
-    - 'catalog' is recorded as "<hostname>:<resolved absolute path>", so
-      it's unambiguous about which machine/filesystem it came from.
-    - list-valued args (velocity, angle) are broken out into `<name>_0`,
-      `<name>_1`, ... fields instead of stored as a list.
-    - 'results_dir' is recorded as None when it's a temporary directory
-      (results_dir_is_tempdir=True) -- it gets cleaned up right after this
-      run, so its path doesn't mean anything to anyone reading the DB later.
-    - any other Path value is stored as a plain string (Path isn't
-      JSON-serializable); everything else is passed through as-is.
+    - 'catalog' -> "<hostname>:<resolved absolute path>".
+    - LIST_PARAMS entries -> `<name>_0`, `<name>_1`, ... fields.
+    - 'results_dir' -> None if results_dir_is_tempdir (it's cleaned up
+      right after the run, so the path is meaningless).
+    - any other Path -> str(path); everything else passed through as-is.
     """
     params = {}
     for k, v in args.items():
@@ -52,16 +47,9 @@ def params_for_db(args: dict, results_dir_is_tempdir: bool) -> dict:
 
 def normalize_time(time_col):
     """Normalize a catalog's 'time' column to an astropy Time in the TAI
-    scale.
-
-    If `time_col` is already an astropy Time (e.g. the caller wrote
-    `catalog['time'] = Time(mjd_values, format='mjd', scale='utc')`), its
-    scale is used directly. Otherwise -- a plain Quantity/Column in units
-    of time, with no scale attached -- it's assumed to be MJD in the UTC
-    scale (astropy.time.Time's own default scale for format='mjd'), and a
-    warning is logged. There's no way to recover the correct scale from a
-    bare number; pass a Time-typed 'time' column to avoid this assumption.
-    """
+    scale. If already a Time, its own scale is used. Otherwise its scale is
+    unrecoverable from a bare number, so UTC is assumed (Time's own default
+    for format='mjd') and a warning is logged."""
     if isinstance(time_col, Time):
         t = time_col
     else:
@@ -234,18 +222,10 @@ def search(X, directions, dx, reference_time, num_results=10, precompute=False, 
     return results, results_points
 
 def run_search(catalog, psfs, velocity, angle, dx, num_results, results_dir, precompute=False, gpu=False, gpu_kernels=False, device=-1, output_format='ecsv', refine_iterations=1):
-    """Search `catalog` for moving objects and write results to `results_dir`.
-
-    This is find-asteroids' whole public contract: read a detection catalog
-    (an astropy-readable table with at least 'ra', 'dec', 'time' columns,
-    with units), write `results_dir/<i>/{result,tracklet,points,gathered}.<output_format>`
-    for each of the `num_results` candidates found. Nothing about *how* this
-    function is invoked, tracked, or scheduled is find-asteroids' concern --
-    see results.py for compiling the output into a single table or database,
-    and bring your own orchestration/experiment-tracking layer if you want
-    one; it only needs to call this function (or the CLI below) and read the
-    directory it writes.
-    """
+    """Search `catalog` (an astropy-readable table with at least 'ra',
+    'dec', 'time' columns, with units) for moving objects, writing
+    `results_dir/<i>/{result,tracklet,points,gathered}.<output_format>` for
+    each of `num_results` candidates found."""
     if gpu and device > -1:
         cuda.select_device(device)
 
@@ -260,8 +240,7 @@ def run_search(catalog, psfs, velocity, angle, dx, num_results, results_dir, pre
     log.info(f"using dx = {dx}")
     catalog = astropy.table.Table.read(catalog)
 
-    # Normalize to find-asteroids' internal working convention: ra/dec in
-    # degrees, time as an astropy Time in the TAI scale
+    # internal working convention: ra/dec in degrees, time as a Time (TAI)
     catalog['ra'] = catalog['ra'].to(u.deg)
     catalog['dec'] = catalog['dec'].to(u.deg)
     catalog['time'] = normalize_time(catalog['time'])
@@ -401,10 +380,7 @@ def main():
     if args.results_dir is None and not results_db_uri:
         parser.error("--results-dir is required unless --results-db-uri is given")
 
-    # With --results-db-uri and no explicit --results-dir, the per-result
-    # directory tree is pure intermediate scratch on the way into the
-    # database -- write it to a temporary directory and clean it up
-    # afterward rather than leaving it on disk for no reason.
+    # scratch dir for --results-db-uri without an explicit --results-dir
     tmpdir = None
     if args.results_dir is None:
         tmpdir = tempfile.TemporaryDirectory(prefix="find-asteroids-")

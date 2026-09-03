@@ -7,27 +7,14 @@ Base = declarative_base()
 
 
 class Search(Base):
-    """The parameters of one find-asteroids search run (see run_search()
-    and the CLI in search.py). One row per run_id -- a run's parameters
-    are stored once here and referenced by every one of its Result rows
-    via `search_id`, rather than duplicated per result.
-
-    `run_id` is an opaque identifier supplied by whatever invoked the
-    search (an MLflow run id, a Snakemake job id, a plain UUID, ...).
-    find-asteroids doesn't know or care what produced it, only that rows
-    sharing a run_id came from the same `run_search()` invocation. Whoever
-    owns run_id is still responsible for tracking anything about the run
-    *besides* its search parameters (tags, code version, ...) -- that's
-    not this database's job.
-
-    Columns are a plain, hand-written mirror of run_search()'s parameters
-    (see params_for_db() in search.py) -- not derived from the CLI
-    automatically, so adding/renaming/removing a CLI argument means
-    updating this model (and a migration) too.
+    """Parameters of one find-asteroids run; one row per run_id. Columns
+    are a hand-written mirror of run_search()'s parameters (see
+    params_for_db() in search.py) -- not derived from the CLI, so keep
+    both in sync manually.
     """
     __tablename__ = 'search'
     id = Column(Integer, primary_key=True)
-    run_id = Column(String, nullable=False, unique=True, index=True)
+    run_id = Column(String, nullable=False, unique=True, index=True)  # opaque, caller-supplied
 
     catalog = Column(String)
     psfs = Column(String, nullable=True)
@@ -37,7 +24,7 @@ class Search(Base):
     angle_1 = Column(Float)
     dx = Column(Float)
     num_results = Column(Integer)
-    results_dir = Column(String, nullable=True)  # None if a temporary directory was used, see params_for_db()
+    results_dir = Column(String, nullable=True)  # None if a temp dir was used
     precompute = Column(Boolean)
     gpu = Column(Boolean)
     gpu_kernels = Column(Boolean)
