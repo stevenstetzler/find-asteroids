@@ -169,7 +169,7 @@ def test_compile_results_astropy():
 def test_compile_results_db():
     from find_asteroids.search import run_search
     from find_asteroids.results import compile_results_db
-    from find_asteroids.models import Result, Gathered
+    from find_asteroids.models import Result, Search, Gathered
     from tempfile import TemporaryDirectory
     from pathlib import Path
     from sqlalchemy import create_engine
@@ -191,13 +191,17 @@ def test_compile_results_db():
 
         engine = create_engine(db_uri)
         with Session(engine) as session:
+            searches = session.query(Search).all()
+            assert len(searches) == 1
+            assert searches[0].run_id == "test-run-1"
+
             results = session.query(Result).all()
             assert len(results) == 10
-            assert {r.run_id for r in results} == {"test-run-1"}
+            assert {r.search.run_id for r in results} == {"test-run-1"}
 
             gathered = session.query(Gathered).all()
             assert len(gathered) > 0
-            assert all(g.result.run_id == "test-run-1" for g in gathered)
+            assert all(g.result.search.run_id == "test-run-1" for g in gathered)
 
 
 def test_compile_results_db_stores_normalized_units(tmp_path):
@@ -300,7 +304,7 @@ def test_main_results_dir_defaults_to_tempdir_with_results_db_uri():
     the way into the database."""
     import sys
     from find_asteroids.search import main
-    from find_asteroids.models import Result
+    from find_asteroids.models import Result, Search
     from tempfile import TemporaryDirectory
     from pathlib import Path
     from sqlalchemy import create_engine
@@ -330,15 +334,16 @@ def test_main_results_dir_defaults_to_tempdir_with_results_db_uri():
         with Session(engine) as session:
             results = session.query(Result).all()
             assert len(results) == 5
-            assert {r.run_id for r in results} == {"test-run-tempdir"}
+            assert {r.search.run_id for r in results} == {"test-run-tempdir"}
 
 
 def test_compile_results_db_params():
-    """params is stored as-is (a plain dict, not a JSON-encoded string) on
-    every Result row from the run it's passed to."""
+    """A single Search row is created for a run_id, populated from `params`
+    (keys not matching a Search column are ignored), and every Result row
+    from that run links to it."""
     from find_asteroids.search import run_search
     from find_asteroids.results import compile_results_db
-    from find_asteroids.models import Result
+    from find_asteroids.models import Result, Search
     from tempfile import TemporaryDirectory
     from pathlib import Path
     from sqlalchemy import create_engine
@@ -356,16 +361,55 @@ def test_compile_results_db_params():
             results_dir,
         )
         db_uri = f"sqlite:///{tmpdir}/results.db"
-        params = {"velocity": [0.1, 0.5], "angle": [0, 359.99], "dx": 10, "catalog": "docs/notebooks/catalog.ecsv"}
+        params = {
+            "velocity_0": 0.1, "velocity_1": 0.5,
+            "angle_0": 0, "angle_1": 359.99,
+            "dx": 10,
+            "catalog": "docs/notebooks/catalog.ecsv",
+            "not_a_search_column": "ignored",
+        }
         compile_results_db(db_uri, results_dir, run_id="test-run-params", params=params)
 
         engine = create_engine(db_uri)
         with Session(engine) as session:
+            searches = session.query(Search).all()
+            assert len(searches) == 1
+            search = searches[0]
+            assert search.run_id == "test-run-params"
+            assert search.velocity_0 == 0.1 and search.velocity_1 == 0.5
+            assert search.angle_0 == 0 and search.angle_1 == 359.99
+            assert search.dx == 10
+            assert search.catalog == "docs/notebooks/catalog.ecsv"
+
             results = session.query(Result).all()
             assert len(results) == 3
-            for r in results:
-                assert isinstance(r.params, dict)
-                assert r.params == params
+            assert all(r.search_id == search.id for r in results)
+
+
+def test_compile_results_db_reuses_search_for_same_run_id():
+    """Calling compile_results_db twice for the same run_id must not create
+    a second Search row -- the existing one is reused as-is."""
+    from find_asteroids.search import run_search
+    from find_asteroids.results import compile_results_db
+    from find_asteroids.models import Search
+    from tempfile import TemporaryDirectory
+    from pathlib import Path
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    with TemporaryDirectory() as tmpdir:
+        results_dir = Path(tmpdir) / "results"
+        run_search("docs/notebooks/catalog.ecsv", "docs/notebooks/psfs.ecsv", [0.1, 0.5], [0, 359.99], 10, 3, results_dir)
+
+        db_uri = f"sqlite:///{tmpdir}/results.db"
+        compile_results_db(db_uri, results_dir, run_id="repeat-run", params={"dx": 10})
+        compile_results_db(db_uri, results_dir, run_id="repeat-run", params={"dx": 999})  # ignored on the repeat call
+
+        engine = create_engine(db_uri)
+        with Session(engine) as session:
+            searches = session.query(Search).filter_by(run_id="repeat-run").all()
+            assert len(searches) == 1
+            assert searches[0].dx == 10  # from the first call, not overwritten by the second
 
 
 def test_params_for_db():
@@ -402,8 +446,8 @@ def test_params_for_db():
 
 def test_main_stores_params(tmp_path):
     """main()'s CLI wiring end to end: params_for_db() is actually applied
-    to a real run's Result rows."""
-    from find_asteroids.models import Result
+    to a real run's Search row."""
+    from find_asteroids.models import Result, Search
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session
     from pathlib import Path
@@ -423,12 +467,14 @@ def test_main_stores_params(tmp_path):
 
     engine = create_engine(db_uri)
     with Session(engine) as session:
-        r = session.query(Result).first()
-        assert isinstance(r.params, dict)
-        assert r.params["catalog"] == f"{socket.getfqdn()}:{Path('docs/notebooks/catalog.ecsv').resolve()}"
-        assert r.params["psfs"] == "docs/notebooks/psfs.ecsv"
-        assert r.params["velocity_0"] == 0.1 and r.params["velocity_1"] == 0.5
-        assert r.params["angle_0"] == 0.0 and r.params["angle_1"] == 359.99
-        assert r.params["dx"] == 10
+        search = session.query(Search).filter_by(run_id="test-run-params-cli").one()
+        assert search.catalog == f"{socket.getfqdn()}:{Path('docs/notebooks/catalog.ecsv').resolve()}"
+        assert search.psfs == "docs/notebooks/psfs.ecsv"
+        assert search.velocity_0 == 0.1 and search.velocity_1 == 0.5
+        assert search.angle_0 == 0.0 and search.angle_1 == 359.99
+        assert search.dx == 10
         # --results-dir wasn't passed, so this run used (and cleaned up) a tempdir
-        assert r.params["results_dir"] is None
+        assert search.results_dir is None
+
+        results = session.query(Result).all()
+        assert all(r.search_id == search.id for r in results)

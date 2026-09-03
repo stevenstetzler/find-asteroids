@@ -1,30 +1,58 @@
 from sqlalchemy import (
-    Column, Integer, Float, String, ForeignKey, JSON
+    Column, Integer, Float, String, Boolean, ForeignKey, JSON
 )
 from sqlalchemy.orm import relationship, declarative_base
 
 Base = declarative_base()
 
 
-class Result(Base):
-    """One candidate result from a single find-asteroids search run.
+class Search(Base):
+    """The parameters of one find-asteroids search run (see run_search()
+    and the CLI in search.py). One row per run_id -- a run's parameters
+    are stored once here and referenced by every one of its Result rows
+    via `search_id`, rather than duplicated per result.
 
     `run_id` is an opaque identifier supplied by whatever invoked the
     search (an MLflow run id, a Snakemake job id, a plain UUID, ...).
     find-asteroids doesn't know or care what produced it, only that rows
     sharing a run_id came from the same `run_search()` invocation. Whoever
-    owns run_id is responsible for tracking anything about the run itself
-    (tags, code version, ...) -- that's not this database's job. `params`
-    is the one exception: a caller-supplied, JSON-serializable dict of the
-    search parameters (velocity/angle/dx/catalog/...) that produced this
-    run, stored as-is on every Result row from that run. It's a convenience
-    for querying without needing an external run-tracker online, not a
-    substitute for one -- there's no run-level table here, so it's
-    duplicated per result rather than normalized.
+    owns run_id is still responsible for tracking anything about the run
+    *besides* its search parameters (tags, code version, ...) -- that's
+    not this database's job.
+
+    Columns are a plain, hand-written mirror of run_search()'s parameters
+    (see params_for_db() in search.py) -- not derived from the CLI
+    automatically, so adding/renaming/removing a CLI argument means
+    updating this model (and a migration) too.
     """
+    __tablename__ = 'search'
+    id = Column(Integer, primary_key=True)
+    run_id = Column(String, nullable=False, unique=True, index=True)
+
+    catalog = Column(String)
+    psfs = Column(String, nullable=True)
+    velocity_0 = Column(Float)
+    velocity_1 = Column(Float)
+    angle_0 = Column(Float)
+    angle_1 = Column(Float)
+    dx = Column(Float)
+    num_results = Column(Integer)
+    results_dir = Column(String, nullable=True)  # None if a temporary directory was used, see params_for_db()
+    precompute = Column(Boolean)
+    gpu = Column(Boolean)
+    gpu_kernels = Column(Boolean)
+    device = Column(Integer)
+    output_format = Column(String)
+    refine_iterations = Column(Integer)
+
+    results = relationship("Result", back_populates="search")
+
+
+class Result(Base):
+    """One candidate result from a single find-asteroids search run."""
     __tablename__ = 'result'
     id = Column(Integer, primary_key=True)
-    run_id = Column(String, nullable=False, index=True)
+    search_id = Column(Integer, ForeignKey('search.id'), nullable=False, index=True)
     result_num = Column(Integer)  # index within the run; matches results_dir/<result_num>/
 
     x = Column(Integer)
@@ -36,8 +64,8 @@ class Result(Base):
     n5 = Column(Integer)
     n10 = Column(Integer)
 
-    params = Column(JSON)
     extra = Column(JSON)
+    search = relationship("Search", back_populates="results")
     points_entries = relationship("Points", back_populates="result")
     gathered_entries = relationship("Gathered", back_populates="result")
     tracklet_entries = relationship("Tracklet", back_populates="result")
