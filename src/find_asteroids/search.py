@@ -231,14 +231,7 @@ def main():
     catalog = astropy.table.Table.read(args.catalog)
 
     # Normalize to find-asteroids' internal working convention: ra/dec in
-    # degrees, time as an astropy Time in the TAI scale (uniform, no leap
-    # seconds -- the search itself only ever uses time differences, which
-    # are scale-invariant among uniform scales, so this is free/safe to do
-    # once here rather than juggle the source scale throughout). RA is
-    # intentionally *not* wrapped to [0, 360) here -- that's applied only
-    # when writing results (below), not to this internal working copy,
-    # since wrapping first would introduce a spurious discontinuity for any
-    # object whose track crosses ra=0 during the linear refine fit.
+    # degrees, time as an astropy Time in the TAI scale
     catalog['ra'] = catalog['ra'].to(u.deg)
     catalog['dec'] = catalog['dec'].to(u.deg)
     catalog['time'] = normalize_time(catalog['time'])
@@ -311,10 +304,6 @@ def main():
                     "vdec": mcdr.beta[0, 1] * u.deg/u.day,
                     "ra_0": (mcdr.alpha[0] % 360) * u.deg,
                     "dec_0": mcdr.alpha[1] * u.deg,
-                    # mcdr.predict() returns plain (unitless) floats in the
-                    # same deg-valued working convention as mcdr.alpha, not
-                    # Quantities -- ra_ref/dec_ref previously had no unit
-                    # attached at all here, unlike ra_0/dec_0.
                     "ra_ref": (reference_sky_pos[0][0] % 360) * u.deg,
                     "dec_ref": reference_sky_pos[0][1] * u.deg,
                     "tref": Time(reference_epoch.value, format='mjd', scale='tai'),
