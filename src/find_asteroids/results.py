@@ -1,5 +1,6 @@
 from pathlib import Path
 import logging
+from astropy.time import Time
 log = logging.getLogger(__name__)
 
 
@@ -89,7 +90,14 @@ def compile_results_db(results_db_uri, results_dir, run_id, output_format='ecsv'
                 # filter the row to only include columns that are in the model
                 filtered_row = {k: v for k, v in row.items() if k in model_columns}
                 for k, v in filtered_row.items():
-                    if hasattr(v, 'item'):  # convert numpy types to python types
+                    if isinstance(v, Time):
+                        # store the DB's canonical convention (MJD, TAI)
+                        # regardless of what scale/format the value already
+                        # carried -- run_search() already normalizes to
+                        # this, but enforce it here too rather than trust
+                        # every possible caller to have done so.
+                        filtered_row[k] = v.tai.mjd
+                    elif hasattr(v, 'item'):  # convert numpy types to python types
                         filtered_row[k] = v.item()
                 extra = json.dumps({str(k): str(v) for k, v in row.items() if k not in model_columns})
                 filtered_row['extra'] = extra

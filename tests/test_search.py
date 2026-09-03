@@ -200,6 +200,48 @@ def test_compile_results_db():
             assert all(g.result.run_id == "test-run-1" for g in gathered)
 
 
+def test_compile_results_db_stores_normalized_units(tmp_path):
+    """The database's ra/time columns must hold find-asteroids' canonical
+    convention (degrees in [0, 360), MJD in the TAI scale) regardless of
+    what units/scale the input catalog used -- run_search() writes Time-
+    typed columns to the intermediate result tables, and Time isn't a type
+    a Float DB column can bind directly, so compile_results_db must convert
+    it explicitly rather than pass it through."""
+    from find_asteroids.search import run_search
+    from find_asteroids.results import compile_results_db
+    from find_asteroids.models import Gathered
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    import astropy.table
+    import astropy.units as u
+
+    # a catalog in radians, like deep_asteroids' real catalogs
+    catalog = astropy.table.Table.read("docs/notebooks/catalog.ecsv")
+    catalog['ra'] = catalog['ra'].to(u.rad)
+    catalog['dec'] = catalog['dec'].to(u.rad)
+    catalog_path = tmp_path / "catalog_rad.ecsv"
+    catalog.write(catalog_path)
+
+    results_dir = tmp_path / "results"
+    run_search(catalog_path, "docs/notebooks/psfs.ecsv", [0.1, 0.5], [0, 359.99], 10, 10, results_dir)
+
+    # cross-check against what run_search actually wrote to disk
+    expected = astropy.table.Table.read(results_dir / "0" / "gathered.ecsv")
+
+    db_uri = f"sqlite:///{tmp_path}/results.db"
+    compile_results_db(db_uri, results_dir, run_id="units-test")
+
+    engine = create_engine(db_uri)
+    with Session(engine) as session:
+        gathered = session.query(Gathered).filter_by(result_id=1).order_by(Gathered.id).all()
+        assert len(gathered) == len(expected)
+        for row, exp in zip(gathered, expected):
+            assert 0 <= row.ra < 360
+            exp_ra = getattr(exp['ra'], 'value', exp['ra'])
+            assert abs(row.ra - exp_ra) < 1e-9
+            assert abs(row.time - exp['time'].tai.mjd) < 1e-9
+
+
 def test_compile_results_db_catalog_with_id_column():
     """Regression test: a detection catalog with its own 'id' column (e.g.
     a per-image detection id, as deep_asteroids' catalogs have) must not
