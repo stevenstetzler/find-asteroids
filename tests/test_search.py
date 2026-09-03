@@ -126,3 +126,75 @@ def test_main_catalog_in_radians_matches_degrees(tmp_path):
     assert abs(t_deg["ra_0"][0] - t_rad["ra_0"][0]) < 1e-6
     assert abs(t_deg["dec_0"][0] - t_rad["dec_0"][0]) < 1e-6
 
+
+def test_run_search():
+    from find_asteroids.search import run_search
+    from tempfile import TemporaryDirectory
+    from pathlib import Path
+
+    with TemporaryDirectory() as tmpdir:
+        run_search(
+            "docs/notebooks/catalog.ecsv",
+            "docs/notebooks/psfs.ecsv",
+            [0.1, 0.5],
+            [0, 359.99],
+            10,
+            10,
+            Path(tmpdir) / "results"
+        )
+
+
+def test_compile_results_astropy():
+    from find_asteroids.search import run_search
+    from find_asteroids.results import compile_results_astropy
+    from tempfile import TemporaryDirectory
+    from pathlib import Path
+
+    with TemporaryDirectory() as tmpdir:
+        results_dir = Path(tmpdir) / "results"
+        run_search(
+            "docs/notebooks/catalog.ecsv",
+            "docs/notebooks/psfs.ecsv",
+            [0.1, 0.5],
+            [0, 359.99],
+            10,
+            10,
+            results_dir,
+        )
+        compiled = dict(compile_results_astropy(results_dir))
+        assert set(compiled.keys()) == {"gathered", "result", "points", "tracklet"}
+        assert len(compiled["result"]) == 10
+
+
+def test_compile_results_db():
+    from find_asteroids.search import run_search
+    from find_asteroids.results import compile_results_db
+    from find_asteroids.models import Result, Gathered
+    from tempfile import TemporaryDirectory
+    from pathlib import Path
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    with TemporaryDirectory() as tmpdir:
+        results_dir = Path(tmpdir) / "results"
+        run_search(
+            "docs/notebooks/catalog.ecsv",
+            "docs/notebooks/psfs.ecsv",
+            [0.1, 0.5],
+            [0, 359.99],
+            10,
+            10,
+            results_dir,
+        )
+        db_uri = f"sqlite:///{tmpdir}/results.db"
+        compile_results_db(db_uri, results_dir, run_id="test-run-1")
+
+        engine = create_engine(db_uri)
+        with Session(engine) as session:
+            results = session.query(Result).all()
+            assert len(results) == 10
+            assert {r.run_id for r in results} == {"test-run-1"}
+
+            gathered = session.query(Gathered).all()
+            assert len(gathered) > 0
+            assert all(g.result.run_id == "test-run-1" for g in gathered)
