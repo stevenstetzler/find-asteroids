@@ -198,3 +198,92 @@ def test_compile_results_db():
             gathered = session.query(Gathered).all()
             assert len(gathered) > 0
             assert all(g.result.run_id == "test-run-1" for g in gathered)
+
+
+def test_compile_results_db_catalog_with_id_column():
+    """Regression test: a detection catalog with its own 'id' column (e.g.
+    a per-image detection id, as deep_asteroids' catalogs have) must not
+    collide with Gathered/Points' own primary key column, also named 'id'.
+    """
+    from find_asteroids.search import run_search
+    from find_asteroids.results import compile_results_db
+    from find_asteroids.models import Gathered
+    from tempfile import TemporaryDirectory
+    from pathlib import Path
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    import astropy.table
+    import json
+
+    catalog = astropy.table.Table.read("docs/notebooks/catalog.ecsv")
+    # a non-unique 'id' column, like a per-image detection id that restarts
+    # for each exposure -- this is what triggered the collision.
+    catalog["id"] = [i % 50 for i in range(len(catalog))]
+    catalog["detector"] = 5
+    catalog["visit"] = [845580 + i % 5 for i in range(len(catalog))]
+
+    with TemporaryDirectory() as tmpdir:
+        catalog_path = Path(tmpdir) / "catalog.ecsv"
+        catalog.write(catalog_path)
+
+        results_dir = Path(tmpdir) / "results"
+        run_search(
+            catalog_path,
+            "docs/notebooks/psfs.ecsv",
+            [0.1, 0.5],
+            [0, 359.99],
+            10,
+            10,
+            results_dir,
+        )
+        db_uri = f"sqlite:///{tmpdir}/results.db"
+        compile_results_db(db_uri, results_dir, run_id="test-run-1")  # must not raise IntegrityError
+
+        engine = create_engine(db_uri)
+        with Session(engine) as session:
+            gathered = session.query(Gathered).all()
+            assert len(gathered) > 0
+            # the DB's own primary keys stay unique/sequential...
+            assert sorted(g.id for g in gathered) == list(range(1, len(gathered) + 1))
+            # ...while the source catalog's 'id'/'detector'/'visit' survive in `extra`
+            extra = json.loads(gathered[0].extra)
+            assert {"id", "detector", "visit"} <= extra.keys()
+
+
+def test_main_results_dir_defaults_to_tempdir_with_results_db_uri():
+    """--results-dir should default to a (cleaned-up) temporary directory
+    when --results-db-uri is given, since it's pure intermediate scratch on
+    the way into the database."""
+    import sys
+    from find_asteroids.search import main
+    from find_asteroids.models import Result
+    from tempfile import TemporaryDirectory
+    from pathlib import Path
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    with TemporaryDirectory() as tmpdir:
+        db_uri = f"sqlite:///{tmpdir}/results.db"
+        argv = [
+            "find-asteroids",
+            "--catalog", "docs/notebooks/catalog.ecsv",
+            "--psfs", "docs/notebooks/psfs.ecsv",
+            "--velocity", "0.1", "0.5",
+            "--angle", "0", "359.99",
+            "--dx", "10",
+            "--num-results", "5",
+            "--run-id", "test-run-tempdir",
+            "--results-db-uri", db_uri,
+        ]
+        old_argv = sys.argv
+        sys.argv = argv
+        try:
+            main()
+        finally:
+            sys.argv = old_argv
+
+        engine = create_engine(db_uri)
+        with Session(engine) as session:
+            results = session.query(Result).all()
+            assert len(results) == 5
+            assert {r.run_id for r in results} == {"test-run-tempdir"}

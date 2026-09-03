@@ -334,6 +334,7 @@ def run_search(catalog, psfs, velocity, angle, dx, num_results, results_dir, pre
 def main():
     import argparse
     import uuid
+    import tempfile
     parser = argparse.ArgumentParser(prog="find-asteroids", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--catalog", required=True, type=Path, help="The detection catalog to search. An astropy-readable table containing at least 'ra', 'dec', and 'time' columns (with units).")
     parser.add_argument("--psfs", required=False, default=None, type=Path, help="An astropy-readable table containing a 'psf' column (with units) that specifies the PSF-widths of the images from which the detection catalog is derived. If not provided, a value of 1 arcsec is assumed.")
@@ -341,37 +342,53 @@ def main():
     parser.add_argument("--angle", required=True, nargs=2, type=float, help="The on-sky angles over which to search, in units of deg.")
     parser.add_argument("--dx", required=True, type=float, help="Search bin-width, in units of the PSF-width.")
     parser.add_argument("--num-results", required=True, type=int, help="Number of results to produce.")
-    parser.add_argument("--results-dir", type=Path, required=True, help="The directory into which to write results.")
+    parser.add_argument("--results-dir", type=Path, required=False, default=None, help="The directory into which to write results. Required unless --results-db-uri is given, in which case it defaults to a temporary directory that's removed after compiling into the database.")
     parser.add_argument("--precompute", action='store_true', help="Precompute projected positions of detections for all trial velocities (uses more memory, but may be faster).")
     parser.add_argument("--gpu", action='store_true', help="Run the core-search components of the algorithm on GPU.")
     parser.add_argument("--gpu-kernels", action='store_true', help="Run the entirety of the search algorithm on the GPU.")
     parser.add_argument("--device", type=int, required=False, default=-1, help="The GPU device number to use.")
     parser.add_argument("--output-format", type=str, default='ecsv', help="The astropy.table supported format for writing results.")
     parser.add_argument("--refine-iterations", type=int, default=1, help="The number of times to refine a candidate result.")
-    parser.add_argument("--compile-results", action='store_true', help="Compile results from individual result directories into single files (or a database, if --results-db-uri is given) in the results directory.")
+    parser.add_argument("--compile-results", action='store_true', help="Compile results from individual result directories into single files. Implied if --results-db-uri is given.")
     parser.add_argument("--run-id", type=str, default=None, help="Opaque identifier for this run, recorded on each compiled result row (e.g. an id from whatever orchestration/experiment-tracking system invoked this run). find-asteroids does not interpret it. Defaults to a random UUID if not provided.")
-    parser.add_argument("--results-db-uri", type=str, default=None, help="If provided (and --compile-results is set), compile results into this SQLAlchemy database URI instead of writing single compiled table files.")
+    parser.add_argument("--results-db-uri", type=str, default=None, help="If provided, compile results into this SQLAlchemy database URI instead of writing single compiled table files.")
 
     args = parser.parse_args()
 
-    do_compile = args.compile_results
+    do_compile = args.compile_results or bool(args.results_db_uri)
     delattr(args, "compile_results")
     results_db_uri = args.results_db_uri
     delattr(args, "results_db_uri")
     run_id = args.run_id or str(uuid.uuid4())
     delattr(args, "run_id")
 
-    run_search(**vars(args))
+    if args.results_dir is None and not results_db_uri:
+        parser.error("--results-dir is required unless --results-db-uri is given")
 
-    if do_compile:
-        if results_db_uri:
-            from .results import compile_results_db
-            compile_results_db(results_db_uri, args.results_dir, run_id=run_id, output_format=args.output_format)
-        else:
-            from .results import compile_results_astropy
-            for name, tbl in compile_results_astropy(args.results_dir, output_format=args.output_format):
-                log.info("writing compiled results to %s", args.results_dir / f"{name}.{args.output_format}")
-                tbl.write(args.results_dir / f"{name}.{args.output_format}")
+    # With --results-db-uri and no explicit --results-dir, the per-result
+    # directory tree is pure intermediate scratch on the way into the
+    # database -- write it to a temporary directory and clean it up
+    # afterward rather than leaving it on disk for no reason.
+    tmpdir = None
+    if args.results_dir is None:
+        tmpdir = tempfile.TemporaryDirectory(prefix="find-asteroids-")
+        args.results_dir = Path(tmpdir.name) / "results"
+
+    try:
+        run_search(**vars(args))
+
+        if do_compile:
+            if results_db_uri:
+                from .results import compile_results_db
+                compile_results_db(results_db_uri, args.results_dir, run_id=run_id, output_format=args.output_format)
+            else:
+                from .results import compile_results_astropy
+                for name, tbl in compile_results_astropy(args.results_dir, output_format=args.output_format):
+                    log.info("writing compiled results to %s", args.results_dir / f"{name}.{args.output_format}")
+                    tbl.write(args.results_dir / f"{name}.{args.output_format}")
+    finally:
+        if tmpdir is not None:
+            tmpdir.cleanup()
 
 
 if __name__ == "__main__":

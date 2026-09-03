@@ -77,8 +77,13 @@ def compile_results_db(results_db_uri, results_dir, run_id, output_format='ecsv'
         results = {}  # result_num -> Result object, for linking child rows
         for name in ['result', 'gathered', 'points', 'tracklet']:
             cls = importlib.import_module('find_asteroids.models').__dict__[name.capitalize()]
-            # get the column names from the model
-            model_columns = {c.name for c in cls.__table__.columns}
+            # get the column names from the model, excluding the primary key:
+            # it's always DB-assigned, never taken from source data -- input
+            # catalogs commonly have their own unrelated 'id' column (e.g. a
+            # per-image detection id), which would otherwise collide with
+            # this table's own row identity instead of falling through to
+            # `extra` where it belongs.
+            model_columns = {c.name for c in cls.__table__.columns} - {'id'}
 
             def do_add(row):
                 # filter the row to only include columns that are in the model
