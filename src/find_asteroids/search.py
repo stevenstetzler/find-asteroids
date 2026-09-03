@@ -9,9 +9,45 @@ import astropy.units as u
 from astropy.time import Time
 from pathlib import Path
 import logging
+import socket
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
+
+# CLI args whose value is a fixed-length list -- broken out into individual
+# <name>_<i> fields in params_for_db() rather than stored as a list, so
+# they're queryable as plain scalar columns/JSON fields instead of an array.
+LIST_PARAMS = ("velocity", "angle")
+
+
+def params_for_db(args: dict, results_dir_is_tempdir: bool) -> dict:
+    """Build a JSON-serializable params dict (see compile_results_db) from
+    main()'s parsed CLI args (as a plain dict, e.g. vars(parsed_args)).
+
+    - 'catalog' is recorded as "<hostname>:<resolved absolute path>", so
+      it's unambiguous about which machine/filesystem it came from.
+    - list-valued args (velocity, angle) are broken out into `<name>_0`,
+      `<name>_1`, ... fields instead of stored as a list.
+    - 'results_dir' is recorded as None when it's a temporary directory
+      (results_dir_is_tempdir=True) -- it gets cleaned up right after this
+      run, so its path doesn't mean anything to anyone reading the DB later.
+    - any other Path value is stored as a plain string (Path isn't
+      JSON-serializable); everything else is passed through as-is.
+    """
+    params = {}
+    for k, v in args.items():
+        if k == "catalog":
+            params[k] = f"{socket.getfqdn()}:{v.resolve()}"
+        elif k == "results_dir":
+            params[k] = None if results_dir_is_tempdir else str(v)
+        elif k in LIST_PARAMS:
+            for i, x in enumerate(v):
+                params[f"{k}_{i}"] = x
+        elif isinstance(v, Path):
+            params[k] = str(v)
+        else:
+            params[k] = v
+    return params
 
 
 def normalize_time(time_col):
@@ -380,8 +416,7 @@ def main():
         if do_compile:
             if results_db_uri:
                 from .results import compile_results_db
-                # Path isn't JSON-serializable; everything else here already is.
-                params = {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items()}
+                params = params_for_db(vars(args), results_dir_is_tempdir=(tmpdir is not None))
                 compile_results_db(results_db_uri, args.results_dir, run_id=run_id, params=params, output_format=args.output_format)
             else:
                 from .results import compile_results_astropy

@@ -368,13 +368,46 @@ def test_compile_results_db_params():
                 assert r.params == params
 
 
-def test_main_stores_params_with_paths_as_strings(tmp_path):
-    """main()'s CLI wiring converts Path-valued args (catalog/psfs/
-    results_dir) to strings before storing them as params, since Path isn't
-    JSON-serializable."""
+def test_params_for_db():
+    """params_for_db()'s three special cases: catalog gets a host-qualified
+    resolved path, list-valued args are broken into <name>_<i> fields, and
+    results_dir is recorded as None when it's a (soon to be cleaned up)
+    temporary directory."""
+    from find_asteroids.search import params_for_db
+    from pathlib import Path
+    import socket
+
+    args = {
+        "catalog": Path("docs/notebooks/catalog.ecsv"),
+        "psfs": Path("docs/notebooks/psfs.ecsv"),
+        "velocity": [0.1, 0.5],
+        "angle": [0, 359.99],
+        "dx": 10.0,
+        "results_dir": Path("/tmp/find-asteroids-abc123/results"),
+    }
+
+    params = params_for_db(args, results_dir_is_tempdir=True)
+    assert params["catalog"] == f"{socket.getfqdn()}:{Path('docs/notebooks/catalog.ecsv').resolve()}"
+    assert params["psfs"] == "docs/notebooks/psfs.ecsv"
+    assert "velocity" not in params
+    assert params["velocity_0"] == 0.1 and params["velocity_1"] == 0.5
+    assert "angle" not in params
+    assert params["angle_0"] == 0 and params["angle_1"] == 359.99
+    assert params["dx"] == 10.0
+    assert params["results_dir"] is None  # tempdir, gets cleaned up -- meaningless to keep
+
+    params = params_for_db(args, results_dir_is_tempdir=False)
+    assert params["results_dir"] == "/tmp/find-asteroids-abc123/results"  # user-chosen, kept
+
+
+def test_main_stores_params(tmp_path):
+    """main()'s CLI wiring end to end: params_for_db() is actually applied
+    to a real run's Result rows."""
     from find_asteroids.models import Result
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session
+    from pathlib import Path
+    import socket
 
     db_uri = f"sqlite:///{tmp_path}/results.db"
     _run_main([
@@ -392,7 +425,10 @@ def test_main_stores_params_with_paths_as_strings(tmp_path):
     with Session(engine) as session:
         r = session.query(Result).first()
         assert isinstance(r.params, dict)
-        assert r.params["catalog"] == "docs/notebooks/catalog.ecsv"
+        assert r.params["catalog"] == f"{socket.getfqdn()}:{Path('docs/notebooks/catalog.ecsv').resolve()}"
         assert r.params["psfs"] == "docs/notebooks/psfs.ecsv"
-        assert r.params["velocity"] == [0.1, 0.5]
+        assert r.params["velocity_0"] == 0.1 and r.params["velocity_1"] == 0.5
+        assert r.params["angle_0"] == 0.0 and r.params["angle_1"] == 359.99
         assert r.params["dx"] == 10
+        # --results-dir wasn't passed, so this run used (and cleaned up) a tempdir
+        assert r.params["results_dir"] is None
