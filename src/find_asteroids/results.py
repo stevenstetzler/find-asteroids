@@ -1,11 +1,13 @@
 from pathlib import Path
+import logging
+log = logging.getLogger(__name__)
 
 def read_results(results_dir : Path, name : str, output_format='ecsv'):
     import astropy.table
     if type(results_dir) is str:
         results_dir = Path(results_dir)
     for p in sorted(results_dir.glob("*/"+f"{name}.{output_format}"), key=lambda x: int(x.parent.name)):
-        print("reading", p)
+        log.info(f"reading {p}")
         result_num = p.parent.name
         if output_format == 'fits':
             t = astropy.table.Table.read(p, memmap=True)
