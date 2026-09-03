@@ -99,6 +99,7 @@ def test_main_catalog_in_radians_matches_degrees(tmp_path):
     """
     import astropy.table
     import astropy.units as u
+    import numpy as np
 
     catalog_deg = astropy.table.Table.read("docs/notebooks/catalog.ecsv")
     catalog_rad = catalog_deg.copy()
@@ -114,7 +115,9 @@ def test_main_catalog_in_radians_matches_degrees(tmp_path):
         "--dx", "10",
         "--num-results", "3",
     ]
+    np.random.seed(0)
     _run_main(["--catalog", "docs/notebooks/catalog.ecsv", "--results-dir", str(tmp_path / "results_deg")] + common)
+    np.random.seed(0)
     _run_main(["--catalog", str(catalog_rad_path), "--results-dir", str(tmp_path / "results_rad")] + common)
 
     t_deg = astropy.table.Table.read(tmp_path / "results_deg" / "0" / "tracklet.ecsv")
