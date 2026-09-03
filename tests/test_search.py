@@ -255,7 +255,6 @@ def test_compile_results_db_catalog_with_id_column():
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session
     import astropy.table
-    import json
 
     catalog = astropy.table.Table.read("docs/notebooks/catalog.ecsv")
     # a non-unique 'id' column, like a per-image detection id that restarts
@@ -287,8 +286,11 @@ def test_compile_results_db_catalog_with_id_column():
             assert len(gathered) > 0
             # the DB's own primary keys stay unique/sequential...
             assert sorted(g.id for g in gathered) == list(range(1, len(gathered) + 1))
-            # ...while the source catalog's 'id'/'detector'/'visit' survive in `extra`
-            extra = json.loads(gathered[0].extra)
+            # ...while the source catalog's 'id'/'detector'/'visit' survive in
+            # `extra`, stored (and read back) as a plain dict -- not a
+            # JSON-encoded string requiring a second json.loads() to unpack.
+            extra = gathered[0].extra
+            assert isinstance(extra, dict)
             assert {"id", "detector", "visit"} <= extra.keys()
 
 
@@ -329,3 +331,68 @@ def test_main_results_dir_defaults_to_tempdir_with_results_db_uri():
             results = session.query(Result).all()
             assert len(results) == 5
             assert {r.run_id for r in results} == {"test-run-tempdir"}
+
+
+def test_compile_results_db_params():
+    """params is stored as-is (a plain dict, not a JSON-encoded string) on
+    every Result row from the run it's passed to."""
+    from find_asteroids.search import run_search
+    from find_asteroids.results import compile_results_db
+    from find_asteroids.models import Result
+    from tempfile import TemporaryDirectory
+    from pathlib import Path
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    with TemporaryDirectory() as tmpdir:
+        results_dir = Path(tmpdir) / "results"
+        run_search(
+            "docs/notebooks/catalog.ecsv",
+            "docs/notebooks/psfs.ecsv",
+            [0.1, 0.5],
+            [0, 359.99],
+            10,
+            3,
+            results_dir,
+        )
+        db_uri = f"sqlite:///{tmpdir}/results.db"
+        params = {"velocity": [0.1, 0.5], "angle": [0, 359.99], "dx": 10, "catalog": "docs/notebooks/catalog.ecsv"}
+        compile_results_db(db_uri, results_dir, run_id="test-run-params", params=params)
+
+        engine = create_engine(db_uri)
+        with Session(engine) as session:
+            results = session.query(Result).all()
+            assert len(results) == 3
+            for r in results:
+                assert isinstance(r.params, dict)
+                assert r.params == params
+
+
+def test_main_stores_params_with_paths_as_strings(tmp_path):
+    """main()'s CLI wiring converts Path-valued args (catalog/psfs/
+    results_dir) to strings before storing them as params, since Path isn't
+    JSON-serializable."""
+    from find_asteroids.models import Result
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    db_uri = f"sqlite:///{tmp_path}/results.db"
+    _run_main([
+        "--catalog", "docs/notebooks/catalog.ecsv",
+        "--psfs", "docs/notebooks/psfs.ecsv",
+        "--velocity", "0.1", "0.5",
+        "--angle", "0", "359.99",
+        "--dx", "10",
+        "--num-results", "3",
+        "--run-id", "test-run-params-cli",
+        "--results-db-uri", db_uri,
+    ])
+
+    engine = create_engine(db_uri)
+    with Session(engine) as session:
+        r = session.query(Result).first()
+        assert isinstance(r.params, dict)
+        assert r.params["catalog"] == "docs/notebooks/catalog.ecsv"
+        assert r.params["psfs"] == "docs/notebooks/psfs.ecsv"
+        assert r.params["velocity"] == [0.1, 0.5]
+        assert r.params["dx"] == 10

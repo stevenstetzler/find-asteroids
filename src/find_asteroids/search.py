@@ -380,7 +380,9 @@ def main():
         if do_compile:
             if results_db_uri:
                 from .results import compile_results_db
-                compile_results_db(results_db_uri, args.results_dir, run_id=run_id, output_format=args.output_format)
+                # Path isn't JSON-serializable; everything else here already is.
+                params = {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items()}
+                compile_results_db(results_db_uri, args.results_dir, run_id=run_id, params=params, output_format=args.output_format)
             else:
                 from .results import compile_results_astropy
                 for name, tbl in compile_results_astropy(args.results_dir, output_format=args.output_format):

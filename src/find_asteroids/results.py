@@ -53,9 +53,14 @@ def compile_results_astropy(results_dir, output_format='ecsv'):
         yield (name, astropy.table.vstack(list(read_results(results_dir, name, output_format=output_format))))
 
 
-def compile_results_db(results_db_uri, results_dir, run_id, output_format='ecsv', echo=False):
+def compile_results_db(results_db_uri, results_dir, run_id, params=None, output_format='ecsv', echo=False):
     """Insert a run's results_dir into the database at `results_db_uri`,
-    tagging every row with the given (caller-supplied, opaque) `run_id`.
+    tagging every Result row with the given (caller-supplied, opaque)
+    `run_id` and, if provided, `params` -- a JSON-serializable dict of the
+    parameters that produced this run (e.g. velocity/angle/dx/catalog).
+    `params` is stored as-is on every Result row from this run (denormalized
+    rather than a separate run-level table, since find-asteroids doesn't
+    otherwise track anything about runs -- see models.py).
 
     Columns from the compiled tables that aren't part of the Result/
     Gathered/Points/Tracklet models (see models.py) -- e.g. extra metadata
@@ -65,7 +70,6 @@ def compile_results_db(results_db_uri, results_dir, run_id, output_format='ecsv'
     from sqlalchemy import create_engine, inspect
     from sqlalchemy.orm import Session
     from .models import Base
-    import json
     import importlib
 
     results_dir = Path(results_dir)
@@ -99,8 +103,12 @@ def compile_results_db(results_db_uri, results_dir, run_id, output_format='ecsv'
                         filtered_row[k] = v.tai.mjd
                     elif hasattr(v, 'item'):  # convert numpy types to python types
                         filtered_row[k] = v.item()
-                extra = json.dumps({str(k): str(v) for k, v in row.items() if k not in model_columns})
-                filtered_row['extra'] = extra
+                # Assign the plain dict directly -- `extra`/`params` are JSON
+                # columns, so the column type handles serialization itself.
+                # (Do not json.dumps() this first: that would serialize it a
+                # second time, storing a JSON-encoded *string* instead of an
+                # object, which then needs an extra json.loads() to unpack.)
+                filtered_row['extra'] = {str(k): str(v) for k, v in row.items() if k not in model_columns}
 
                 obj = cls(**filtered_row)
                 session.add(obj)
@@ -109,6 +117,7 @@ def compile_results_db(results_db_uri, results_dir, run_id, output_format='ecsv'
             for row in read_results(results_dir, name, output_format=output_format):
                 if name == 'result':
                     row['run_id'] = run_id
+                    row['params'] = params
                     results[row['result_num']] = do_add(row)
                 else:  # link to the owning result
                     row['result_id'] = results[row.pop('result_num')].id

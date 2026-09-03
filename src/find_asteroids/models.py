@@ -14,7 +14,13 @@ class Result(Base):
     find-asteroids doesn't know or care what produced it, only that rows
     sharing a run_id came from the same `run_search()` invocation. Whoever
     owns run_id is responsible for tracking anything about the run itself
-    (parameters, tags, code version, ...) -- that's not this database's job.
+    (tags, code version, ...) -- that's not this database's job. `params`
+    is the one exception: a caller-supplied, JSON-serializable dict of the
+    search parameters (velocity/angle/dx/catalog/...) that produced this
+    run, stored as-is on every Result row from that run. It's a convenience
+    for querying without needing an external run-tracker online, not a
+    substitute for one -- there's no run-level table here, so it's
+    duplicated per result rather than normalized.
     """
     __tablename__ = 'result'
     id = Column(Integer, primary_key=True)
@@ -30,6 +36,7 @@ class Result(Base):
     n5 = Column(Integer)
     n10 = Column(Integer)
 
+    params = Column(JSON)
     extra = Column(JSON)
     points_entries = relationship("Points", back_populates="result")
     gathered_entries = relationship("Gathered", back_populates="result")
