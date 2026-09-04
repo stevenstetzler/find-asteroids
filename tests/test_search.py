@@ -495,7 +495,10 @@ def test_json_safe():
     assert _json_safe(np.str_("hi")) == "hi" and isinstance(_json_safe(np.str_("hi")), str)
 
     t = Time(58576.5, format='mjd', scale='tt')
-    assert _json_safe(t) == t.tai.mjd
+    safe_t = _json_safe(t)
+    assert safe_t == t.tai.mjd and isinstance(safe_t, float)  # not a bare np.float64 --
+    # psycopg2/SQLAlchemy's bulk-insert path renders those as literal SQL text
+    # (e.g. "np.float64(...)") instead of binding them, on numpy >= 2
 
     assert _json_safe(3) == 3  # plain Python values pass through unchanged
     assert _json_safe("x") == "x"

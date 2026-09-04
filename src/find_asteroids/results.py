@@ -8,7 +8,7 @@ def _json_safe(v):
     """Coerce numpy scalars to native Python types (.item()) and Time
     values to MJD/TAI, so they serialize correctly instead of stringifying."""
     if isinstance(v, Time):
-        return v.tai.mjd
+        v = v.tai.mjd
     if hasattr(v, 'item'):
         return v.item()
     return v
