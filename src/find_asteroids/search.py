@@ -64,8 +64,9 @@ def normalize_time(time_col):
 
 def search_gpu(X, directions, dx, reference_time, num_results=10):
     from .gpu_impl import projected_bounds, _vote_points, _vote_points_mask, _find_voters_points, _hough_max
+    directions.raise_if_empty()
     n = X.shape[0]
-    
+
     x_min, x_max, y_min, y_max = projected_bounds(X, directions.b, reference_time)
     
     num_dir = directions.b.shape[0]
@@ -149,6 +150,8 @@ def search(X, directions, dx, reference_time, num_results=10, precompute=False, 
         from .gpu_impl import projected_bounds, hough_max, make_bins, vote_points, vote_bins, find_voters_points, find_voters_bins
     else:
         from .cpu_impl import projected_bounds, hough_max, make_bins, vote_points, vote_bins, find_voters_points, find_voters_bins
+
+    directions.raise_if_empty()
 
     def find_clusters_points(X, hough, directions, x_min, y_min, dx, dy, reference_time, n=10):
         results = np.full((n, 4), -1)

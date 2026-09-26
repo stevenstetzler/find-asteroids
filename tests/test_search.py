@@ -12,6 +12,28 @@ def test_search():
     search(X, directions, dx, X[:, 2].min())
 
 
+def test_search_raises_a_clear_error_for_a_too_short_time_baseline():
+    """Regression test for the crash documented in salad's FAILURES.md
+    (Sec 2c): a catalog whose time baseline is too short, relative to dx
+    and the requested velocity window, produces an empty
+    SearchDirections.b -- search() must raise a clear ValueError (via
+    SearchDirections.raise_if_empty()) instead of crashing deep inside
+    projected_bounds() with numpy/numba's own cryptic
+    "zero-size array to reduction operation minimum" error."""
+    from find_asteroids.search import search
+    from find_asteroids.directions import SearchDirections
+    import astropy.units as u
+    import numpy as np
+    import pytest
+
+    X = np.array([[150.0, -10.0, 58600.0], [150.001, -10.001, 58600.0007]])
+    dx = 10 * u.arcsec
+    dt = (1 * u.minute).to(u.day)
+    directions = SearchDirections([0.1 * u.deg/u.day, 0.5 * u.deg/u.day], [0 * u.deg, 359.99 * u.deg], dx, dt)
+    with pytest.raises(ValueError, match="no achievable search directions"):
+        search(X, directions, dx, X[:, 2].min())
+
+
 def _run_main(argv):
     import sys
     from find_asteroids.search import main
