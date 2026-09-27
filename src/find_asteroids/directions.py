@@ -66,3 +66,25 @@ class SearchDirections(object):
             self._b = b[v_mask & phi_mask]
         return self._b
 
+    def raise_if_empty(self):
+        """Raise ValueError if no lattice point survives the velocity/angle
+        filter -- happens when the time baseline (dt) is short enough,
+        relative to dx and the requested velocity window, that the discrete
+        velocity lattice (spacing dx/dt) has no point inside
+        [v_min, v_max] x [phi_min, phi_max]. Call before using `.b` for
+        anything that assumes a non-empty result (see search()/search_gpu()
+        in search.py, which both reduce over an array shaped by `.b`'s own
+        length and crash with a cryptic numpy/numba error otherwise)."""
+        if len(self.b) == 0:
+            raise ValueError(
+                f"no achievable search directions in velocity range "
+                f"[{self.v_min}, {self.v_max}] at angle range "
+                f"[{self.phi_min}, {self.phi_max}] for time baseline dt={self.dt} "
+                f"and bin width dx={self.dx} -- the discrete velocity lattice "
+                f"(spacing dx/dt) has no point inside this window. This usually "
+                f"means the catalog's time baseline is too short (too few "
+                f"images/epochs) to resolve motion at this velocity/dx "
+                f"combination; widen the velocity range, decrease dx, or skip "
+                f"this catalog."
+            )
+
