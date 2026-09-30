@@ -528,8 +528,10 @@ def test_json_safe():
 
 
 def test_compile_results_db_extra_preserves_numeric_types():
-    """extra's values keep their native int/float type -- e.g. flux/
-    sigma_x from the fixture catalog -- rather than being stringified."""
+    """extra's values keep their native int/float type -- e.g. sigma_x
+    from the fixture catalog -- rather than being stringified. 'flux' is
+    a model column on Gathered (not just an extra example anymore, see
+    that model's own docstring), so it's checked separately below."""
     from find_asteroids.search import run_search
     from find_asteroids.results import compile_results_db
     from find_asteroids.models import Gathered
@@ -547,8 +549,10 @@ def test_compile_results_db_extra_preserves_numeric_types():
 
         engine = create_engine(db_uri)
         with Session(engine) as session:
-            extra = session.query(Gathered).first().extra
-            assert isinstance(extra["flux"], float)
+            gathered = session.query(Gathered).first()
+            extra = gathered.extra
             assert isinstance(extra["sigma_x"], float)
             assert isinstance(extra["exposures"], int)
             assert isinstance(extra["detectors"], int)
+            assert "flux" not in extra
+            assert isinstance(gathered.flux, float)
