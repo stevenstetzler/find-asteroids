@@ -66,6 +66,16 @@ class Gathered(Base):
     ra = Column(Float)
     dec = Column(Float)
     time = Column(Float)
+    # Optional per-detection photometry, carried straight through from the
+    # input catalog's own 'flux'/'mag' columns if present (run_search()
+    # writes gathered.<fmt> as catalog[gathered] -- every catalog column a
+    # caller supplies survives into this table's `extra` already; these
+    # two get dedicated, nullable columns instead so they're queryable/
+    # typed rather than buried in JSON). Left NULL for any run whose
+    # catalog didn't carry the column at all (e.g. no per-detection
+    # photometry available), not populated with a placeholder.
+    flux = Column(Float, nullable=True)
+    mag = Column(Float, nullable=True)
 
     extra = Column(JSON)
     result = relationship("Result", back_populates="gathered_entries")
